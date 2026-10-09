@@ -359,6 +359,11 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     for (let v = Math.floor(min / step) * step; v <= Math.ceil(max / step) * step + step / 2; v += step) out.push(r2(v));
     return out;
   }
+  // Default "By league" view (no league chips picked): which of the two lines a bet's league joins.
+  const OTHERS = "Everything else";
+  function lineGroup(league) {
+    return league === "NFL" ? "NFL" : OTHERS;
+  }
   function renderLine() {
     const box = $("#lineBox"), legend = $("#lineLegend");
     const rows = settledRows().sort((a, b) => a.t - b.t);
@@ -370,10 +375,14 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     const idx = new Map(xs.map((x, i) => [x, i]));
     let series;
     if (state.split === "league") {
-      const present = LEAGUES.filter((l) => rows.some((b) => b.league === l));
-      series = present.map((l) => ({ name: l, color: LEAGUE_COLOR[l], delta: new Array(xs.length).fill(0), n: new Array(xs.length).fill(0) }));
+      // No league chips picked: NFL vs everything else. Chips picked: one line per picked league.
+      const picked = state.f.league.size > 0;
+      const groupOf = picked ? (l) => (LEAGUES.includes(l) ? l : "Other") : lineGroup;
+      const order = picked ? LEAGUES : ["NFL", OTHERS];
+      const present = order.filter((g) => rows.some((b) => groupOf(b.league) === g));
+      series = present.map((g) => ({ name: g, color: LEAGUE_COLOR[g] || "--s0", delta: new Array(xs.length).fill(0), n: new Array(xs.length).fill(0) }));
       const by = new Map(series.map((sr) => [sr.name, sr]));
-      for (const b of rows) { const sr = by.get(b.league) || by.get("Other"); if (!sr) continue; const i = idx.get(keyOf(b)); sr.delta[i] += b.pl; sr.n[i]++; }
+      for (const b of rows) { const sr = by.get(groupOf(b.league)); if (!sr) continue; const i = idx.get(keyOf(b)); sr.delta[i] += b.pl; sr.n[i]++; }
     } else {
       const sr = { name: "All bets", color: "--ink", delta: new Array(xs.length).fill(0), n: new Array(xs.length).fill(0) };
       for (const b of rows) { const i = idx.get(keyOf(b)); sr.delta[i] += b.pl; sr.n[i]++; }
