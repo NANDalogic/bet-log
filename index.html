@@ -1,0 +1,756 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#faf9f5;color:#141413}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Bet Log Dashboard</title>
+<style>
+/* Layout: phone-first single column; sticky filter bar, KPI grid, then chart cards and bet lists. Widens to two columns on desktop. */
+:root{
+  --page:#f4f4f1; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#7d7b75;
+  --grid:#e6e5df; --axis:#c3c2b7; --line:rgba(11,11,11,.10); --chip:#ecebe6;
+  --good:#0a7d0a; --good-mark:#0ca30c; --bad:#c23434; --bad-mark:#d03b3b; --warn:#9a6a00;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948; --s0:#898781;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --page:#0f0f0e; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#97958e;
+  --grid:#2c2c2a; --axis:#45453f; --line:rgba(255,255,255,.10); --chip:#262624;
+  --good:#3ac23a; --good-mark:#0ca30c; --bad:#f07070; --bad-mark:#d03b3b; --warn:#e0a82e;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; --s0:#898781;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0f0f0e; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#97958e;
+  --grid:#2c2c2a; --axis:#45453f; --line:rgba(255,255,255,.10); --chip:#262624;
+  --good:#3ac23a; --good-mark:#0ca30c; --bad:#f07070; --bad-mark:#d03b3b; --warn:#e0a82e;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767; --s0:#898781;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--page);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45;padding-inline:16px;padding-block:12px 40px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+button{font:inherit;color:inherit}
+button:focus-visible{outline:2px solid var(--s1);outline-offset:2px}
+.num{font-variant-numeric:tabular-nums}
+
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
+h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
+.fresh{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.live{background:var(--good-mark)}
+.dot.stale{background:var(--warn)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;min-height:34px}
+.btn:hover{background:var(--chip)}
+
+.banner{border:1px solid var(--line);border-left:4px solid var(--warn);background:var(--surface);border-radius:8px;padding:10px 12px;font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.banner.err{border-left-color:var(--bad-mark)}
+.banner p{margin:0;flex:1 1 220px}
+
+.filters{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--page);padding-block:8px;margin-inline:-16px;padding-inline:16px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.frow{display:flex;align-items:center;gap:8px;min-width:0}
+.flabel{font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);width:58px;flex:none}
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;min-width:0;padding-block:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:5px 11px;font-size:13px;cursor:pointer;white-space:nowrap;min-height:32px;display:inline-flex;align-items:center;gap:6px}
+.chip[aria-pressed="true"]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.chip .sw{width:10px;height:3px;border-radius:2px}
+.fsum{font-size:12.5px;color:var(--ink-2);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.link{background:none;border:0;padding:0;color:var(--s1);cursor:pointer;text-decoration:underline;font-size:12.5px}
+
+.kpis{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+@media (min-width:760px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.kpi .k{font-size:12px;color:var(--ink-2)}
+.kpi .v{font-size:26px;font-weight:650;letter-spacing:-.01em;line-height:1.15}
+.kpi .s{font-size:12.5px;color:var(--muted)}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+
+.grid2{display:grid;gap:14px}
+@media (min-width:900px){.grid2{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.card h2{font-size:16px;margin:0;letter-spacing:-.005em}
+.card .sub{font-size:12.5px;color:var(--muted);margin:0}
+.chead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex:none}
+.seg button{border:0;background:transparent;padding:5px 10px;font-size:12.5px;cursor:pointer;min-height:30px}
+.seg button[aria-pressed="true"]{background:var(--chip);font-weight:600}
+.segs{display:flex;gap:6px;flex-wrap:wrap}
+
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;overflow:visible}
+.chart text{font-family:var(--sans);font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--line);box-shadow:0 4px 16px rgba(0,0,0,.12);border-radius:8px;padding:8px 10px;font-size:12.5px;min-width:140px;z-index:3}
+.tip .th{color:var(--ink-2);margin-bottom:4px;font-size:12px}
+.tip .tr{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.tip .tr span:first-child{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2)}
+.tip .tr b{font-weight:650}
+.key{display:inline-block;width:12px;height:2px;border-radius:1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend b{color:var(--ink);font-weight:600}
+
+.bars{display:flex;flex-direction:column;gap:4px}
+.bar{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:3px 10px;border:0;background:transparent;text-align:left;padding:7px 6px;border-radius:8px;cursor:pointer;width:100%}
+.bar:hover{background:var(--chip)}
+.bar.dim{opacity:.38}
+.bar .bn{font-size:14px;font-weight:550;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px;min-width:0}
+.bar .bs{display:block;grid-column:1/-1;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track{position:relative;height:12px;grid-column:1/-1}
+.track .zero{position:absolute;top:-2px;bottom:-2px;width:1px;background:var(--axis)}
+.track .fill{position:absolute;top:1px;height:10px;min-width:2px}
+.bar .bv{text-align:right;font-weight:600;font-size:14px}
+.bar.sel .bn::after{content:"✓";font-size:12px;color:var(--ink-2)}
+
+.list{display:flex;flex-direction:column}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;padding:9px 0;border-top:1px solid var(--line)}
+.row:first-child{border-top:0}
+.row .rt{font-weight:550;font-size:14.5px;min-width:0;overflow-wrap:anywhere}
+.row .rm{font-size:12.5px;color:var(--muted);min-width:0;grid-column:1}
+.row .rv{text-align:right;font-weight:650;grid-row:1;grid-column:2}
+.row .rr{text-align:right;font-size:12px;color:var(--muted);grid-column:2;grid-row:2}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;background:var(--chip);color:var(--ink-2);margin-left:4px;vertical-align:1px}
+.empty{color:var(--muted);font-size:14px;padding:18px 4px;text-align:center}
+.promo{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 12px;padding:10px 0 10px 12px;border-top:1px solid var(--line);position:relative}
+.promo:first-child{border-top:0}
+.promo::before{content:"";position:absolute;left:0;top:10px;bottom:10px;width:3px;border-radius:2px;background:var(--axis)}
+.promo.u-crit::before{background:var(--bad-mark)}
+.promo.u-warn::before{background:var(--warn)}
+.promo .pt{font-weight:550;font-size:14.5px;min-width:0;overflow-wrap:anywhere}
+.promo .pv{text-align:right;font-weight:650}
+.promo .pm{font-size:12.5px;color:var(--muted);min-width:0}
+.promo .pc{text-align:right;font-size:12.5px;font-weight:600;white-space:nowrap}
+.promo .px{grid-column:1/-1;font-size:12.5px;color:var(--ink-2);overflow-wrap:anywhere}
+.u-crit .pc{color:var(--bad)} .u-warn .pc{color:var(--warn)}
+.pill.warn{background:transparent;border:1px solid var(--warn);color:var(--warn)}
+.next{font-size:13px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px}
+.next b{color:var(--ink);font-weight:600}
+.secnote{font-size:12.5px;color:var(--muted)}
+.skel{height:14px;border-radius:6px;background:var(--chip)}
+.foot{font-size:12px;color:var(--muted);text-align:center;margin-top:6px}
+@media (prefers-reduced-motion:no-preference){.fill{transition:left .25s,width .25s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">Sports Bets · Snapshot</p>
+      <h1>Bet Log Dashboard</h1>
+    </div>
+    <div class="fresh"><span class="dot" id="dot"></span><span id="freshText">Loading…</span><button class="btn" id="refreshBtn" type="button" hidden>Refresh</button></div>
+  </header>
+
+  <div id="banner" hidden></div>
+
+  <section class="filters" aria-label="Filters">
+    <div class="frow"><span class="flabel">Range</span><div class="chips" id="f-range"></div></div>
+    <div class="frow"><span class="flabel">League</span><div class="chips" id="f-league"></div></div>
+    <div class="frow"><span class="flabel">Promo</span><div class="chips" id="f-promo"></div></div>
+    <div class="frow"><span class="flabel">Verdict</span><div class="chips" id="f-verdict"></div></div>
+    <div class="frow"><span class="flabel">Book</span><div class="chips" id="f-book"></div></div>
+    <div class="fsum" id="fsum"></div>
+  </section>
+
+  <section class="kpis" id="kpis" aria-label="Totals">
+    <div class="kpi"><span class="k">Net P/L</span><div class="skel" style="height:28px;width:70%"></div></div>
+    <div class="kpi"><span class="k">ROI</span><div class="skel" style="height:28px;width:50%"></div></div>
+    <div class="kpi"><span class="k">Record</span><div class="skel" style="height:28px;width:60%"></div></div>
+    <div class="kpi"><span class="k">Open bets</span><div class="skel" style="height:28px;width:40%"></div></div>
+    </section>
+
+  <section class="card" id="promoCard" hidden aria-labelledby="promoTitle">
+    <div class="chead">
+      <div><h2 id="promoTitle">Promos expiring in 72 hours</h2><p class="sub" id="promoSub">Available promos from your Promos database, soonest first</p></div>
+      <div class="seg" role="group" aria-label="Expiry window"><button type="button" data-win="24" aria-pressed="false">24h</button><button type="button" data-win="72" aria-pressed="true">72h</button><button type="button" data-win="168" aria-pressed="false">1 wk</button><button type="button" data-win="336" aria-pressed="false">2 wk</button></div>
+    </div>
+    <div class="list" id="promoList"><div class="skel" style="height:44px"></div></div>
+    <p class="secnote" id="promoNote" hidden></p>
+  </section>
+
+  <section class="card">
+    <div class="chead">
+      <div><h2>Cumulative P/L</h2><p class="sub">Settled bets only, by settle date</p></div>
+      <div class="segs">
+        <div class="seg" role="group" aria-label="Split"><button type="button" data-split="league" aria-pressed="true">By league</button><button type="button" data-split="total" aria-pressed="false">Total</button></div>
+        <div class="seg" role="group" aria-label="Interval"><button type="button" data-step="day" aria-pressed="true">Day</button><button type="button" data-step="week" aria-pressed="false">Week</button></div>
+      </div>
+    </div>
+    <div class="chart" id="lineBox"><div class="skel" style="height:220px"></div></div>
+    <div class="legend" id="lineLegend"></div>
+  </section>
+
+  <div class="grid2">
+    <section class="card"><div><h2>P/L by promo</h2><p class="sub">Tap a row to filter</p></div><div class="bars" id="b-promo"></div></section>
+    <section class="card"><div><h2>P/L by verdict</h2><p class="sub">Go, Marginal and Fun are the model's picks</p></div><div class="bars" id="b-verdict"></div></section>
+    <section class="card"><div><h2>P/L by league</h2><p class="sub">Tap a row to filter</p></div><div class="bars" id="b-league"></div></section>
+    <section class="card"><div><h2>P/L by book</h2><p class="sub">Tap a row to filter</p></div><div class="bars" id="b-book"></div></section>
+  </div>
+
+  <div class="grid2">
+    <section class="card"><div><h2>Open bets</h2><p class="sub">Dated to when they settle. Not in the charts until settled.</p></div><div class="list" id="openList"></div></section>
+    <section class="card"><div><h2>Settled bets</h2><p class="sub" id="settledSub">Newest first</p></div><div class="list" id="settledList"></div><button class="btn" id="moreBtn" type="button" hidden>Show more</button></section>
+  </div>
+
+  <p class="foot">P/L = Returned − Cash risked. Bonus bets risk $0 cash. This is a static snapshot of the Bet Log taken Oct 9, 2026.</p>
+</div>
+
+<script>
+const BETS = [{"Bet":"Wild to win Stanley Cup (future)","Game":"NHL 2026/27 Stanley Cup","date:Date:start":"2027-06-20","League":"NHL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Other","Odds":1300,"Stake":10,"Cash risked":10,"Result":"Pending","Boost %":0.25},{"Bet":"Cowboys ML (live hedge)","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"None","Verdict":"Pass","Book":"Novig","Bet type":"Moneyline","Odds":299,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"White Sox ML","Game":"CLE @ CWS","date:Date:start":"2026-10-08","League":"MLB","Promo":"Profit boost","Verdict":"Go","Book":"FanDuel","Bet type":"Moneyline","Odds":-102,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"SGP: Bucs +8.5 + Over 48.5 (Safety Net)","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"No-sweat","Verdict":"Go","Book":"bet365","Bet type":"Same-game parlay","Odds":290,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost"},{"Bet":"Parlay: USF ML + Arkansas St ML","Game":"USF @ UTSA; South Alabama @ Arkansas St","date:Date:start":"2026-10-08","League":"CFB","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Parlay","Odds":401,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.25},{"Bet":"Guardians ML","Game":"CLE @ CWS","date:Date:start":"2026-10-08","League":"MLB","Promo":"Other","Verdict":"Fun","Book":"DraftKings","Bet type":"Moneyline","Odds":-118,"Stake":25,"Cash risked":25,"Returned":46.18,"Result":"Won"},{"Bet":"SGP: Bucs +9.5 + Over 48.5 + Jalon Daniels 40+ rush yds","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Same-game parlay","Odds":425,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Over 48.5","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Other","Verdict":"Pass","Book":"DraftKings","Bet type":"Total","Odds":-118,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"Cowboys -9.5","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Other","Verdict":"Fun","Book":"DraftKings","Bet type":"Spread","Odds":-108,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"Arkansas St ML","Game":"South Alabama @ Arkansas St","date:Date:start":"2026-10-08","League":"CFB","Promo":"Other","Verdict":"Fun","Book":"DraftKings","Bet type":"Moneyline","Odds":-148,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"UTSA ML","Game":"South Florida @ UTSA","date:Date:start":"2026-10-08","League":"CFB","Promo":"Other","Verdict":"Fun","Book":"DraftKings","Bet type":"Moneyline","Odds":-250,"Stake":25,"Cash risked":25,"Returned":35,"Result":"Won"},{"Bet":"SGP: Cowboys ML + Under 48.5 + Bucs team total U20.5","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Other","Verdict":"Go","Book":"Novig","Bet type":"Same-game parlay","Odds":138,"Stake":50,"Cash risked":50,"Returned":0,"Result":"Lost"},{"Bet":"Buccaneers ML (Bet Reset)","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"No-sweat","Verdict":"Go","Book":"FanDuel","Bet type":"Moneyline","Odds":385,"Stake":100,"Cash risked":100,"Returned":485,"Result":"Won"},{"Bet":"Buccaneers +8.5","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"Fanatics","Bet type":"Spread","Odds":-115,"Stake":20,"Cash risked":20,"Returned":40.87,"Result":"Won","Boost %":0.2},{"Bet":"Buccaneers ML (Up-7 Early Win)","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Other","Verdict":"Go","Book":"FanDuel","Bet type":"Moneyline","Odds":370,"Stake":25,"Cash risked":25,"Returned":117.5,"Result":"Won"},{"Bet":"Buccaneers ML","Game":"TB @ DAL","date:Date:start":"2026-10-08","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":400,"Stake":25,"Cash risked":0,"Returned":100,"Result":"Won"},{"Bet":"SGPx: Avalanche ML + Over 6.5 (COL@WPG) + Ducks +1.5","Game":"COL @ WPG; EDM @ ANA","date:Date:start":"2026-10-07","League":"NHL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Same-game parlay","Odds":305,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Braves +1.5 (run line)","Game":"LAD @ ATL","date:Date:start":"2026-10-06","League":"MLB","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Spread","Odds":-191,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"SGP: Falcons +1.5 + Over 47.5 + Olave U87.5 rec yds","Game":"ATL @ NO","date:Date:start":"2026-10-05","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"bet365","Bet type":"Same-game parlay","Odds":575,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"SGP: Saints -1.5 + Hooper 7+ rec yds + Under 47.5","Game":"ATL @ NO","date:Date:start":"2026-10-05","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Same-game parlay","Odds":575,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Falcons -6.5 (alt spread)","Game":"ATL @ NO","date:Date:start":"2026-10-05","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"FanDuel","Bet type":"Spread","Odds":255,"Stake":25,"Cash risked":25,"Returned":121,"Result":"Won","Boost %":0.5},{"Bet":"Austin Hooper Over 6.5 rec yds","Game":"ATL @ NO","date:Date:start":"2026-10-05","League":"NFL","Promo":"Other","Verdict":"Fun","Book":"DraftKings","Bet type":"Player prop","Odds":-110,"Stake":10,"Cash risked":10,"Returned":19.09,"Result":"Won"},{"Bet":"Bijan Robinson anytime TD","Game":"ATL @ NO","date:Date:start":"2026-10-05","League":"NFL","Promo":"Other","Verdict":"Pass","Book":"DraftKings","Bet type":"Player prop","Odds":-195,"Stake":5,"Cash risked":5,"Returned":7.56,"Result":"Won"},{"Bet":"SGP: Lions + Over 49.5 + Chuba Hubbard (leg collapsed)","Game":"DET @ CAR","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Same-game parlay","Odds":495,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"Jameson Williams first TD scorer","Game":"DET @ CAR","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Player prop","Odds":1300,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"SGP: Panthers +3.5 + Over 51.5 + Bryce Young O12.5 rush yds","Game":"DET @ CAR","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"bet365","Bet type":"Same-game parlay","Odds":525,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Lions ML","Game":"DET @ CAR","date:Date:start":"2026-10-04","League":"NFL","Promo":"Other","Verdict":"Fun","Book":"bet365","Bet type":"Moneyline","Odds":-210,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost"},{"Bet":"SGP: Lions ML + Over 51.5 + Bryce Young U12.5 rush yds","Game":"DET @ CAR","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Marginal","Book":"FanDuel","Bet type":"Same-game parlay","Odds":391,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"49ers ML","Game":"DEN @ SF","date:Date:start":"2026-10-04","League":"NFL","Promo":"Other","Verdict":"Fun","Book":"FanDuel","Bet type":"Moneyline","Odds":-152,"Stake":5,"Cash risked":5,"Returned":8.29,"Result":"Won"},{"Bet":"Parlay: Bears ML + Packers ML + Chiefs ML","Game":"NYJ @ CHI; GB @ TB; KC @ LV","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"FanDuel","Bet type":"Parlay","Odds":286,"Stake":10,"Cash risked":10,"Returned":53.04,"Result":"Won","Boost %":0.5},{"Bet":"Chiefs ML","Game":"KC @ LV","date:Date:start":"2026-10-04","League":"NFL","Verdict":"Fun","Book":"FanDuel","Bet type":"Moneyline","Odds":-210,"Stake":5,"Cash risked":5,"Returned":7.38,"Result":"Won"},{"Bet":"Chargers ML","Game":"LAC @ SEA","date:Date:start":"2026-10-04","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"FanDuel","Bet type":"Moneyline","Odds":295,"Stake":25,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Eagles ML","Game":"LAR @ PHI","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"FanDuel","Bet type":"Moneyline","Odds":160,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"Patriots ML","Game":"NE @ BUF","date:Date:start":"2026-10-04","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":260,"Stake":10,"Cash risked":0,"Returned":26,"Result":"Won"},{"Bet":"Chargers ML","Game":"LAC @ SEA","date:Date:start":"2026-10-04","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":285,"Stake":25,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Dolphins ML","Game":"MIA @ MIN","date:Date:start":"2026-10-04","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":400,"Stake":25,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Parlay: Cardinals ML + 49ers ML + Lions ML","Game":"ARI @ NYG; DEN @ SF; DET @ CAR","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Parlay","Odds":343,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Patriots ML","Game":"NE @ BUF","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":260,"Stake":20,"Cash risked":20,"Returned":98,"Result":"Won","Boost %":0.5},{"Bet":"Commanders ML","Game":"IND @ WAS","date:Date:start":"2026-10-04","League":"NFL","Promo":"No-sweat","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":190,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost"},{"Bet":"Over 51.5 (Total)","Game":"JAX @ CIN","date:Date:start":"2026-10-04","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"Other","Bet type":"Total","Odds":-105,"Stake":50,"Cash risked":50,"Returned":0,"Result":"Lost","Boost %":1},{"Bet":"Titans ML","Game":"TEN @ BAL","date:Date:start":"2026-10-04","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"Other","Bet type":"Moneyline","Odds":540,"Stake":100,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Iowa +16.5","Game":"Ohio State @ Iowa","date:Date:start":"2026-10-03","League":"CFB","Promo":"None","Book":"Novig","Bet type":"Spread","Odds":-125,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost"},{"Bet":"Ohio State -18.5","Game":"Ohio State @ Iowa","date:Date:start":"2026-10-03","League":"CFB","Promo":"None","Book":"Novig","Bet type":"Spread","Odds":102,"Stake":9.81,"Cash risked":9.81,"Returned":0,"Result":"Lost"},{"Bet":"Under 83.5 (Total)","Game":"Alabama @ Mississippi State","date:Date:start":"2026-10-03","League":"CFB","Promo":"Profit boost","Book":"FanDuel","Bet type":"Total","Odds":-114,"Stake":10,"Cash risked":10,"Returned":23.2,"Result":"Won","Boost %":0.5},{"Bet":"Pittsburgh 120+ team rush yds (live)","Game":"Pittsburgh @ Virginia Tech","date:Date:start":"2026-10-03","League":"CFB","Promo":"Profit boost","Book":"DraftKings","Bet type":"Other","Odds":-115,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Iowa +17.5","Game":"Ohio State @ Iowa","date:Date:start":"2026-10-03","League":"CFB","Promo":"None","Book":"bet365","Bet type":"Spread","Odds":-330,"Stake":80,"Cash risked":80,"Returned":104.25,"Result":"Won"},{"Bet":"Over 2.5 Goals (Total)","Game":"Mexico @ USA (Intl Friendly)","date:Date:start":"2026-10-03","League":"Soccer","Promo":"Profit boost","Verdict":"Go","Book":"FanDuel","Bet type":"Total","Odds":-114,"Stake":10,"Cash risked":10,"Returned":21.5,"Result":"Won","Boost %":0.3},{"Bet":"Iowa ML","Game":"Ohio State @ Iowa","date:Date:start":"2026-10-03","League":"CFB","Promo":"Bonus bet","Verdict":"Go","Book":"Novig","Bet type":"Moneyline","Odds":545,"Stake":5,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"NC State ML","Game":"Louisville @ NC State","date:Date:start":"2026-10-03","League":"CFB","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":140,"Stake":20,"Cash risked":20,"Returned":62,"Result":"Won","Boost %":0.5},{"Bet":"Mississippi State ML","Game":"Alabama @ Mississippi State","date:Date:start":"2026-10-03","League":"CFB","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Moneyline","Odds":170,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"11-leg parlay: Arizona ML + Florida ML + BYU ML + Tennessee -6.5 + FSU +1.5 + UNLV -1.5 + Rutgers +24.5 + Colorado +13.5 + Baylor ML + Iowa +14.5 + Purdue +9.5","Game":"CFB Week 5 (11 games: CIN @ ARIZ, FLA @ MIZ, BYU @ TCU, AUB @ TENN, UVA @ FSU, CAL @ UNLV, IND @ RUT, TTU @ COLO, BAY @ ASU, OSU @ IOWA, PUR @ ILL)","date:Date:start":"2026-10-03","League":"CFB","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Parlay","Odds":66913,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":1.05},{"Bet":"SGP: Judkins U59.5 rush yds + Browns ML","Game":"PIT @ CLE","date:Date:start":"2026-10-01","League":"NFL","Promo":"None","Book":"bet365","Bet type":"Same-game parlay","Odds":110,"Stake":10,"Cash risked":10,"Returned":21,"Result":"Won"},{"Bet":"SGP: Steelers -2.5 + Judkins O55.5 rush yds + Under 38.5","Game":"PIT @ CLE","date:Date:start":"2026-10-01","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Same-game parlay","Odds":750,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Over 38.5 (Total)","Game":"PIT @ CLE","date:Date:start":"2026-10-01","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"Other","Bet type":"Total","Odds":-102,"Stake":25,"Cash risked":25,"Returned":62,"Result":"Won","Boost %":0.5},{"Bet":"Colston Loveland 2+ TDs","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"Bonus bet","Book":"FanDuel","Bet type":"Player prop","Odds":12500,"Stake":10,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Saquon Barkley anytime TD","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"None","Book":"FanDuel","Bet type":"Player prop","Odds":1000,"Stake":1,"Cash risked":1,"Returned":0,"Result":"Lost"},{"Bet":"1+ Points Scored in Eagles vs Bears","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"None","Book":"FanDuel","Bet type":"Other","Odds":-10000,"Stake":5,"Cash risked":5,"Returned":5.05,"Result":"Won"},{"Bet":"Eagles ML","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"None","Book":"FanDuel","Bet type":"Moneyline","Odds":-235,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost"},{"Bet":"Luther Burden III 3+ catches on CHI drive 5","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"Profit boost","Book":"FanDuel","Bet type":"Player prop","Odds":3500,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"Saquon Barkley TD on PHI 9th drive","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"None","Book":"FanDuel","Bet type":"Player prop","Odds":2200,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost"},{"Bet":"Colston Loveland 2+ TDs","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"None","Book":"FanDuel","Bet type":"Player prop","Odds":15000,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"SGP: Barkley ATD + Hurts 225+ pass yds + Bears +1.5","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"Profit boost","Book":"FanDuel","Bet type":"Same-game parlay","Odds":905,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost","Boost %":1},{"Bet":"Eagles to win","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"Bonus bet","Book":"Novig","Bet type":"Moneyline","Odds":8991,"Stake":2.62,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"SGP 3-pick: 100+ yds + 100+ yds + Over 39.5","Game":"PHI @ CHI","date:Date:start":"2026-09-28","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Same-game parlay","Odds":1200,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"SGP: Chargers + James Cook","Game":"LAC @ BUF","date:Date:start":"2026-09-27","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Same-game parlay","Odds":525,"Stake":3,"Cash risked":3,"Returned":0,"Result":"Lost","Boost %":0.1},{"Bet":"Parlay: Chiefs + Bills +10.5 + Lions","Game":"NFL 9/27: KC, LAC @ BUF, DET games","date:Date:start":"2026-09-27","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Parlay","Odds":-169,"Stake":10,"Cash risked":10,"Returned":19,"Result":"Won","Boost %":0.5},{"Bet":"Parlay: SGP(Red Sox +1.5 & BOS/NYY Under 6.5) + Bears +3.5 + Browns +2.5","Game":"BOS @ NYY; PHI @ CHI; PIT @ CLE","date:Date:start":"2026-09-27","League":"Mixed","Promo":"Bonus bet","Book":"bet365","Bet type":"Parlay","Odds":999,"Stake":6,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"SGP: Kyren Williams 90+ rush yds + Davante Adams 100+ rec yds + Evan Engram O8.5 rec yds","Game":"LAR @ DEN","date:Date:start":"2026-09-27","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"FanDuel","Bet type":"Same-game parlay","Odds":591,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"SGP: Waddle 40+ rec yds + Adams 40+ rec yds","Game":"LAR @ DEN","date:Date:start":"2026-09-27","League":"NFL","Promo":"Odds boost","Verdict":"Go","Book":"DraftKings","Bet type":"Same-game parlay","Odds":100,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"Parlay: LAR/DEN Under 44.5 + Bears +3.5 + SGP(Red Sox +1.5 & BOS/NYY Under 6.5) + Valkyries ML + Browns +2.5","Game":"LAR @ DEN; PHI @ CHI; BOS @ NYY; DAL @ GSV; PIT @ CLE","date:Date:start":"2026-09-27","League":"Mixed","Promo":"Bonus bet","Verdict":"Go","Book":"Other","Bet type":"Parlay","Odds":3216,"Stake":365,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Parlay: Javonte Williams 1Q TD + Travis Etienne 1Q TD","Game":"BAL @ DAL; LV @ NO","date:Date:start":"2026-09-27","League":"NFL","Promo":"Odds boost","Verdict":"Go","Book":"Other","Bet type":"Parlay","Odds":6500,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost"},{"Bet":"Under 44.5 (Total) \u2014 TD bonus qualifier","Game":"LA Rams @ DEN Broncos","date:Date:start":"2026-09-27","League":"NFL","Promo":"Other","Verdict":"Fun","Book":"Other","Bet type":"Total","Odds":-115,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost"},{"Bet":"Parlay: Ravens ML + Vikings ML + Raiders ML + ARI/SF Over 48.5 + LAR/DEN Over 44.5","Game":"ARI @ SF; MIN @ TB; BAL @ DAL; LV @ NO; LAR @ DEN","date:Date:start":"2026-09-27","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Parlay","Odds":2911,"Stake":20,"Cash risked":20,"Returned":147.57,"Result":"Cashed out","Boost %":0.25},{"Bet":"Chargers ML","Game":"LAC @ BUF","date:Date:start":"2026-09-27","League":"NFL","Promo":"Bonus bet","Book":"DraftKings","Bet type":"Moneyline","Odds":260,"Stake":25,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Ravens ML","Game":"BAL @ DAL","date:Date:start":"2026-09-27","League":"NFL","Promo":"None","Verdict":"Fun","Book":"DraftKings","Bet type":"Moneyline","Odds":-166,"Stake":10,"Cash risked":10,"Returned":16.02,"Result":"Won"},{"Bet":"Saints -3.5","Game":"LV @ NO","date:Date:start":"2026-09-27","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Spread","Odds":-102,"Stake":20,"Cash risked":20,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Parlay: Ravens ML + Raiders ML","Game":"BAL @ DAL; LV @ NO","date:Date:start":"2026-09-27","League":"NFL","Promo":"Other","Verdict":"Fun","Book":"DraftKings","Bet type":"Parlay","Odds":316,"Stake":25,"Cash risked":25,"Returned":104.15,"Result":"Won"},{"Bet":"Terrance Ferguson anytime TD","Game":"LAR @ DEN","date:Date:start":"2026-09-27","League":"NFL","Promo":"Profit boost","Verdict":"Go","Book":"DraftKings","Bet type":"Player prop","Odds":230,"Stake":20,"Cash risked":20,"Returned":8.6,"Result":"Cashed out","Boost %":0.5},{"Bet":"Vikings +10.5 (alt)","Game":"MIN @ TB","date:Date:start":"2026-09-27","League":"NFL","Promo":"None","Verdict":"Pass","Book":"DraftKings","Bet type":"Spread","Odds":-650,"Stake":5,"Cash risked":5,"Returned":5.77,"Result":"Won"},{"Bet":"Parlay: Browns ML + Vikings -1.5","Game":"CAR @ CLE; MIN @ TB","date:Date:start":"2026-09-27","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"DraftKings","Bet type":"Parlay","Odds":317,"Stake":25,"Cash risked":0,"Returned":79.25,"Result":"Won"},{"Bet":"Parlay: Patriots ML + Jets ML","Game":"NE @ JAX; NYJ @ DET","date:Date:start":"2026-09-27","League":"NFL","Promo":"Bonus bet","Verdict":"Go","Book":"DraftKings","Bet type":"Parlay","Odds":749,"Stake":25,"Cash risked":0,"Returned":0,"Result":"Lost"},{"Bet":"Ole Miss ML","Game":"Ole Miss @ Florida","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"FanDuel","Bet type":"Moneyline","Odds":152,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Texas -6.5 (alt)","Game":"Texas @ Tennessee","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"FanDuel","Bet type":"Spread","Odds":-185,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"LSU -4.5 (alt)","Game":"Texas A&M @ LSU","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"FanDuel","Bet type":"Spread","Odds":-186,"Stake":25,"Cash risked":25,"Returned":45.25,"Result":"Won","Boost %":0.5},{"Bet":"Texas ML","Game":"Texas @ Tennessee","date:Date:start":"2026-09-26","League":"CFB","Promo":"None","Book":"FanDuel","Bet type":"Moneyline","Odds":-205,"Stake":50,"Cash risked":50,"Returned":74.39,"Result":"Won"},{"Bet":"3-leg parlay: Tennessee + Michigan + Ole Miss","Game":"CFB 9/26: TENN, MICH, MISS games","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"Novig","Bet type":"Parlay","Odds":1046,"Stake":4.99,"Cash risked":4.99,"Returned":0,"Result":"Lost"},{"Bet":"Oregon ML","Game":"Oregon @ USC","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"DraftKings","Bet type":"Moneyline","Odds":-180,"Stake":25,"Cash risked":25,"Returned":46,"Result":"Won","Boost %":0.5},{"Bet":"Parlay: Louisville + Ole Miss + Houston","Game":"CFB 9/26: Louisville, Ole Miss, Houston games","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"DraftKings","Bet type":"Parlay","Odds":358,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Over 60.5 (alt total)","Game":"Texas A&M @ LSU","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"DraftKings","Bet type":"Total","Odds":202,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Tailgate Special: UGA ML + Ole Miss +7.5 + Iowa +10.5 + Miss St ML","Game":"CFB 9/26: OU @ UGA, Ole Miss @ FLA, Iowa @ MICH, MIZ @ MSST","date:Date:start":"2026-09-26","League":"CFB","Promo":"Odds boost","Book":"DraftKings","Bet type":"Parlay","Odds":400,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost"},{"Bet":"SGP: LSU -3 + Over 48.5 + LSU 200+ team rec yds","Game":"Texas A&M @ LSU","date:Date:start":"2026-09-26","League":"CFB","Promo":"Profit boost","Book":"bet365","Bet type":"Same-game parlay","Odds":140,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"SGP 3-pick: Indiana -29.5 + Indiana + 450+ leg","Game":"Northwestern @ Indiana","date:Date:start":"2026-09-25","League":"CFB","Promo":"Profit boost","Book":"DraftKings","Bet type":"Same-game parlay","Odds":325,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Packers ML (live)","Game":"ATL @ GB","date:Date:start":"2026-09-24","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Moneyline","Odds":4700,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":1},{"Bet":"Christian Watson anytime TD","Game":"ATL @ GB","date:Date:start":"2026-09-24","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Player prop","Odds":130,"Stake":25,"Cash risked":25,"Returned":90,"Result":"Won","Boost %":1},{"Bet":"SGP: Packers + Christian Watson","Game":"ATL @ GB","date:Date:start":"2026-09-24","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Same-game parlay","Odds":240,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Packers ML","Game":"ATL @ GB","date:Date:start":"2026-09-24","League":"NFL","Promo":"None","Book":"bet365","Bet type":"Moneyline","Odds":210,"Stake":10,"Cash risked":10,"Returned":0,"Result":"Lost"},{"Bet":"Under 6.5 (live total)","Game":"MIN @ SF","date:Date:start":"2026-09-23","League":"MLB","Promo":"Other","Book":"DraftKings","Bet type":"Total","Odds":-147,"Stake":25,"Cash risked":25,"Returned":42,"Result":"Won"},{"Bet":"Cubs ML","Game":"MIA @ CHC","date:Date:start":"2026-09-22","League":"MLB","Promo":"None","Book":"DraftKings","Bet type":"Moneyline","Odds":-218,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost"},{"Bet":"Cameron Skattebo anytime TD","Game":"NYG @ LAR","date:Date:start":"2026-09-21","League":"NFL","Promo":"Odds boost","Book":"DraftKings","Bet type":"Player prop","Odds":150,"Stake":100,"Cash risked":100,"Returned":0,"Result":"Lost"},{"Bet":"Giants ML (live)","Game":"NYG @ LAR","date:Date:start":"2026-09-21","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Moneyline","Odds":670,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.3},{"Bet":"Giants ML","Game":"NYG @ LAR","date:Date:start":"2026-09-21","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Moneyline","Odds":240,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Giants 4th drive, 9th play type: Rush (live)","Game":"NYG @ LAR","date:Date:start":"2026-09-21","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Other","Odds":750,"Stake":1,"Cash risked":1,"Returned":0,"Result":"Lost"},{"Bet":"Commanders +6.5 (live)","Game":"WAS @ DAL","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Spread","Odds":-105,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost"},{"Bet":"Saints ML (live)","Game":"NO @ BAL","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Moneyline","Odds":910,"Stake":1,"Cash risked":1,"Returned":10.1,"Result":"Won"},{"Bet":"SGP 2-pick: Christian Watson prop + Packers -1.5","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Same-game parlay","Odds":2800,"Stake":1,"Cash risked":1,"Returned":29,"Result":"Won"},{"Bet":"SGP 2-pick: drive results (Offensive Score + Turnover/TOD/Safety)","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Same-game parlay","Odds":750,"Stake":1,"Cash risked":1,"Returned":0,"Result":"Lost"},{"Bet":"Jets 7th drive result: Turnover/TOD/Safety (live)","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Other","Odds":650,"Stake":1,"Cash risked":1,"Returned":0,"Result":"Lost"},{"Bet":"Jets 7th drive to cross 50: No (live)","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Other","Odds":195,"Stake":5,"Cash risked":5,"Returned":0,"Result":"Lost"},{"Bet":"Jets 6th drive result: Punt (live)","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Other","Odds":-120,"Stake":6,"Cash risked":6,"Returned":11,"Result":"Won"},{"Bet":"SGP 2-pick: Buccaneers + Under 48.5","Game":"CLE @ TB","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Same-game parlay","Odds":1600,"Stake":1,"Cash risked":1,"Returned":0,"Result":"Lost"},{"Bet":"Packers 6th drive to cross opp 20: Yes (live)","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Other","Odds":215,"Stake":6,"Cash risked":6,"Returned":0,"Result":"Lost"},{"Bet":"Over 20.5 (live total)","Game":"MIN @ CHI","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Total","Odds":-119,"Stake":1,"Cash risked":1,"Returned":0,"Result":"Lost"},{"Bet":"Packers ML (live)","Game":"GB @ NYJ","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"DraftKings","Bet type":"Moneyline","Odds":186,"Stake":10,"Cash risked":10,"Returned":15.56,"Result":"Cashed out"},{"Bet":"Colts +5.5","Game":"IND @ KC","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"bet365","Bet type":"Spread","Odds":-110,"Stake":10,"Cash risked":10,"Returned":18.91,"Result":"Cashed out"},{"Bet":"Colts ML","Game":"IND @ KC","date:Date:start":"2026-09-20","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Moneyline","Odds":215,"Stake":25,"Cash risked":25,"Returned":10.43,"Result":"Cashed out","Boost %":0.5},{"Bet":"SGP 5-pick: Rashee Rice + Chiefs + 200+ / 4+ / 40+ legs","Game":"IND @ KC","date:Date:start":"2026-09-20","League":"NFL","Promo":"Profit boost","Book":"DraftKings","Bet type":"Same-game parlay","Odds":470,"Stake":25,"Cash risked":25,"Returned":0,"Result":"Lost","Boost %":0.5},{"Bet":"Under 57.5 (Total)","Game":"IND @ KC","date:Date:start":"2026-09-20","League":"NFL","Promo":"None","Book":"bet365","Bet type":"Total","Odds":-130,"Stake":10,"Cash risked":10,"Returned":17.52,"Result":"Cashed out"}];
+(() => {
+  const SERVER = "Notion";
+  const TOOL = "notion-query-data-sources";
+  const VIEW = "view://3e899d7c-3971-8185-862d-000cf2c0594b";
+  const SETTLED = new Set(["Won", "Lost", "Push", "Void", "Cashed out"]);
+  const LEAGUES = ["NFL", "CFB", "NBA", "NCAAB", "MLB", "NHL", "Soccer", "Mixed", "Other"];
+  const LEAGUE_COLOR = { NFL: "--s1", CFB: "--s2", MLB: "--s3", NHL: "--s4", NBA: "--s5", NCAAB: "--s6", Soccer: "--s7", Mixed: "--s8", Other: "--s0" };
+  const PROMOS = ["None", "Profit boost", "Odds boost", "Bonus bet", "No-sweat", "Other"];
+  const VERDICTS = ["Go", "Marginal", "Fun", "Pass", "No verdict"];
+  const BOOKS = ["DraftKings", "FanDuel", "bet365", "Novig", "Kalshi", "Polymarket", "Other"];
+  const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"].map(toT);
+  const DAY = 86400000;
+
+  const state = {
+    bets: [], loaded: false,
+    range: "all",
+    f: { league: new Set(), promo: new Set(), verdict: new Set(), book: new Set() },
+    split: "league", step: "day", shown: 20,
+  };
+  const $ = (s) => document.querySelector(s);
+
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "style") el.setAttribute("style", v);
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    return el;
+  }
+  const NS = "http://www.w3.org/2000/svg";
+  function s(tag, attrs) {
+    const el = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) if (v != null) el.setAttribute(k, v);
+    return el;
+  }
+
+  function toT(d) { const [y, m, dd] = d.split("-").map(Number); return Date.UTC(y, m - 1, dd); }
+  function num(v) { if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; }
+  const r2 = (n) => Math.round(n * 100) / 100;
+  function money(n, signed = true) {
+    if (n == null) return "—";
+    const a = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (!signed) return "$" + a;
+    return (n > 0.004 ? "+$" : n < -0.004 ? "−$" : "$") + a;
+  }
+  function moneyShort(n) {
+    const a = Math.abs(n), sign = n < 0 ? "−" : "";
+    return sign + "$" + (a >= 1000 ? (a / 1000).toFixed(a >= 10000 ? 0 : 1) + "k" : Math.round(a));
+  }
+  const cls = (n) => (n > 0.004 ? "pos" : n < -0.004 ? "neg" : "");
+  const pct = (n) => (n == null ? "—" : (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n * 100).toFixed(1) + "%");
+  const odds = (o) => (o == null ? "" : o > 0 ? "+" + o : String(o));
+  function fmtDate(t, opts = { month: "short", day: "numeric" }) { return new Date(t).toLocaleDateString("en-US", { timeZone: "UTC", ...opts }); }
+  function todayT() { const d = new Date(); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); }
+
+  function weekOf(t) {
+    let a = WEEK_ANCHORS[0];
+    for (const x of WEEK_ANCHORS) if (x <= t) a = x;
+    const w = Math.floor((t - a) / (7 * DAY)) + 1;
+    return { w, start: a + (w - 1) * 7 * DAY, season: new Date(a).getUTCFullYear() };
+  }
+
+  function norm(r) {
+    const result = r.Result;
+    const date = String(r["date:Date:start"] || "").slice(0, 10);
+    if (!result || !/^\d{4}-\d\d-\d\d$/.test(date)) return null;
+    const promo = r.Promo || "None";
+    const stake = num(r.Stake);
+    let cash = num(r["Cash risked"]);
+    if (cash == null) cash = promo === "Bonus bet" ? 0 : stake || 0;
+    let ret = num(r.Returned);
+    const settled = SETTLED.has(result);
+    let missing = false;
+    if (ret == null) {
+      if (result === "Push" || result === "Void") ret = cash;
+      else { ret = 0; if (result === "Won" || result === "Cashed out") missing = true; }
+    }
+    const t = toT(date);
+    return {
+      id: r.url || Math.random().toString(36), bet: r.Bet || "Untitled bet", game: r.Game || "",
+      date, t, week: weekOf(t), league: r.League || "Other", promo, verdict: r.Verdict || "No verdict",
+      book: r.Book || "Other", type: r["Bet type"] || "", odds: num(r.Odds), stake, cash, ret, result,
+      settled, missing, pl: settled ? r2(ret - cash) : null, boost: num(r["Boost %"]),
+    };
+  }
+
+  // ---------- filtering ----------
+  function inRange(b) {
+    if (state.range === "all") return true;
+    const today = todayT();
+    if (state.range === "7") return b.t > today - 7 * DAY && b.t <= today;
+    if (state.range === "30") return b.t > today - 30 * DAY && b.t <= today;
+    if (state.range === "week") { const w = weekOf(today); return b.t >= w.start && b.t < w.start + 7 * DAY; }
+    return true;
+  }
+  function passDims(b, skip) {
+    for (const k of ["league", "promo", "verdict", "book"]) {
+      if (k === skip) continue;
+      const set = state.f[k];
+      if (set.size && !set.has(b[k])) return false;
+    }
+    return true;
+  }
+  const settledRows = (skip) => state.bets.filter((b) => b.settled && inRange(b) && passDims(b, skip));
+  const openRows = () => state.bets.filter((b) => !b.settled && passDims(b));
+  const anyFilter = () => state.range !== "all" || Object.values(state.f).some((x) => x.size);
+
+  // ---------- filter chips ----------
+  const RANGES = [["all", "All time"], ["30", "Last 30 days"], ["7", "Last 7 days"], ["week", "This betting week"]];
+  function renderFilters() {
+    const rangeBox = $("#f-range");
+    rangeBox.replaceChildren(...RANGES.map(([v, label]) =>
+      h("button", { type: "button", class: "chip", "aria-pressed": String(state.range === v), onclick: () => { state.range = v; state.shown = 20; renderAll(); } }, label)));
+    const dims = { league: LEAGUES, promo: PROMOS, verdict: VERDICTS, book: BOOKS };
+    for (const [k, order] of Object.entries(dims)) {
+      const present = new Set(state.bets.map((b) => b[k]));
+      const vals = order.filter((v) => present.has(v)).concat([...present].filter((v) => !order.includes(v)).sort());
+      const box = $("#f-" + k);
+      const set = state.f[k];
+      box.replaceChildren(
+        h("button", { type: "button", class: "chip", "aria-pressed": String(set.size === 0), onclick: () => { set.clear(); state.shown = 20; renderAll(); } }, "All"),
+        ...vals.map((v) => h("button", { type: "button", class: "chip", "aria-pressed": String(set.has(v)), onclick: () => toggle(k, v) },
+          k === "league" ? h("span", { class: "sw", style: `background:var(${LEAGUE_COLOR[v] || "--s0"})` }) : null, v)));
+    }
+    const n = settledRows().length, total = state.bets.filter((b) => b.settled).length;
+    const sum = $("#fsum");
+    sum.replaceChildren(h("span", { class: "num" }, `Showing ${n} of ${total} settled bets`));
+    if (anyFilter()) sum.append(h("button", { type: "button", class: "link", onclick: clearAll }, "Clear filters"));
+  }
+  function toggle(k, v) { const set = state.f[k]; set.has(v) ? set.delete(v) : set.add(v); state.shown = 20; renderAll(); }
+  function clearAll() { state.range = "all"; for (const set of Object.values(state.f)) set.clear(); state.shown = 20; renderAll(); }
+
+  // ---------- KPIs ----------
+  function kpi(label, value, valueCls, sub) {
+    return h("div", { class: "kpi" }, h("span", { class: "k" }, label), h("span", { class: "v num " + (valueCls || "") }, value), h("span", { class: "s" }, sub));
+  }
+  function renderKpis() {
+    if (!state.loaded) return;
+    const rows = settledRows();
+    const pl = r2(rows.reduce((a, b) => a + b.pl, 0));
+    const cash = rows.reduce((a, b) => a + b.cash, 0);
+    const w = rows.filter((b) => b.result === "Won").length, l = rows.filter((b) => b.result === "Lost").length;
+    const p = rows.filter((b) => b.result === "Push" || b.result === "Void").length;
+    const co = rows.filter((b) => b.result === "Cashed out").length;
+    const open = openRows();
+    const openCash = open.reduce((a, b) => a + b.cash, 0);
+    const roi = cash > 0 ? pl / cash : null;
+    $("#kpis").replaceChildren(
+      kpi("Net P/L", money(pl), cls(pl), `${rows.length} settled bet${rows.length === 1 ? "" : "s"}`),
+      kpi("ROI", pct(roi), roi == null ? "" : cls(roi), cash > 0 ? `on ${money(cash, false)} cash risked` : "No cash risked in this view"),
+      kpi("Record", `${w}-${l}${p ? "-" + p : ""}`, "", (w + l ? `${Math.round((w / (w + l)) * 100)}% wins` : "No decisions") + (co ? ` · ${co} cashed out` : "") + (p ? " · W-L-Push" : " · W-L")),
+      kpi("Open bets", String(open.length), "", open.length ? `${money(openCash, false)} cash at risk` : "Nothing pending"),
+    );
+  }
+
+  // ---------- line chart ----------
+  function niceTicks(min, max, n) {
+    if (min === max) { min -= 10; max += 10; }
+    const raw = (max - min) / n, mag = 10 ** Math.floor(Math.log10(raw)), e = raw / mag;
+    const step = (e >= 7.5 ? 10 : e >= 3.5 ? 5 : e >= 1.5 ? 2 : 1) * mag;
+    const out = [];
+    for (let v = Math.floor(min / step) * step; v <= Math.ceil(max / step) * step + step / 2; v += step) out.push(r2(v));
+    return out;
+  }
+  function renderLine() {
+    const box = $("#lineBox"), legend = $("#lineLegend");
+    const rows = settledRows().sort((a, b) => a.t - b.t);
+    box.replaceChildren(); legend.replaceChildren();
+    if (!rows.length) { box.append(h("div", { class: "empty" }, state.loaded ? "No settled bets match these filters." : "Loading…")); return; }
+
+    const keyOf = state.step === "week" ? (b) => b.week.start : (b) => b.t;
+    const xs = [...new Set(rows.map(keyOf))].sort((a, b) => a - b);
+    const idx = new Map(xs.map((x, i) => [x, i]));
+    let series;
+    if (state.split === "league") {
+      const present = LEAGUES.filter((l) => rows.some((b) => b.league === l));
+      series = present.map((l) => ({ name: l, color: LEAGUE_COLOR[l], delta: new Array(xs.length).fill(0), n: new Array(xs.length).fill(0) }));
+      const by = new Map(series.map((sr) => [sr.name, sr]));
+      for (const b of rows) { const sr = by.get(b.league) || by.get("Other"); if (!sr) continue; const i = idx.get(keyOf(b)); sr.delta[i] += b.pl; sr.n[i]++; }
+    } else {
+      const sr = { name: "All bets", color: "--ink", delta: new Array(xs.length).fill(0), n: new Array(xs.length).fill(0) };
+      for (const b of rows) { const i = idx.get(keyOf(b)); sr.delta[i] += b.pl; sr.n[i]++; }
+      series = [sr];
+    }
+    for (const sr of series) { let c = 0; sr.vals = sr.delta.map((d) => (c = r2(c + d))); }
+
+    const W = Math.max(280, box.clientWidth || 340), H = W < 520 ? 230 : 280;
+    const m = { l: 50, r: 14, t: 10, b: 26 };
+    const all = series.flatMap((sr) => sr.vals).concat(0);
+    const ticks = niceTicks(Math.min(...all), Math.max(...all), 4);
+    const y0 = ticks[0], y1 = ticks[ticks.length - 1];
+    const X = (i) => (xs.length === 1 ? (m.l + W - m.r) / 2 : m.l + ((xs[i] - xs[0]) / (xs[xs.length - 1] - xs[0])) * (W - m.l - m.r));
+    const Y = (v) => m.t + (1 - (v - y0) / (y1 - y0)) * (H - m.t - m.b);
+
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Cumulative profit and loss over time" });
+    for (const tv of ticks) {
+      svg.append(s("line", { x1: m.l, x2: W - m.r, y1: Y(tv), y2: Y(tv), style: `stroke:var(${tv === 0 ? "--axis" : "--grid"});stroke-width:1` }));
+      const tx = s("text", { x: m.l - 8, y: Y(tv) + 4, "text-anchor": "end" }); tx.textContent = moneyShort(tv); svg.append(tx);
+    }
+    const nLab = Math.min(xs.length, W < 420 ? 3 : 5);
+    const labIdx = nLab <= 1 ? [0] : [...new Set(Array.from({ length: nLab }, (_, k) => Math.round((k * (xs.length - 1)) / (nLab - 1))))];
+    for (const i of labIdx) {
+      const tx = s("text", { x: X(i), y: H - 6, "text-anchor": i === 0 && xs.length > 1 ? "start" : i === xs.length - 1 && xs.length > 1 ? "end" : "middle" });
+      tx.textContent = state.step === "week" ? "Wk " + weekOf(xs[i]).w : fmtDate(xs[i]);
+      svg.append(tx);
+    }
+    for (const sr of series) {
+      const d = sr.vals.map((v, i) => `${i ? "L" : "M"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join("");
+      svg.append(s("path", { d, fill: "none", style: `stroke:var(${sr.color});stroke-width:2;stroke-linejoin:round;stroke-linecap:round` }));
+      const li = sr.vals.length - 1;
+      svg.append(s("circle", { cx: X(li), cy: Y(sr.vals[li]), r: 4, style: `fill:var(${sr.color});stroke:var(--surface);stroke-width:2` }));
+    }
+    const cross = s("line", { y1: m.t, y2: H - m.b, style: "stroke:var(--axis);stroke-width:1", visibility: "hidden" });
+    const dots = series.map((sr) => s("circle", { r: 4.5, visibility: "hidden", style: `fill:var(${sr.color});stroke:var(--surface);stroke-width:2` }));
+    svg.append(cross, ...dots);
+    const hit = s("rect", { x: m.l - 10, y: 0, width: W - m.l - m.r + 20, height: H, fill: "transparent", tabindex: "0", style: "cursor:crosshair;outline:none" });
+    svg.append(hit);
+    box.append(svg);
+    const tip = h("div", { class: "tip", hidden: true });
+    box.append(tip);
+
+    function show(i) {
+      const x = X(i);
+      cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.setAttribute("visibility", "visible");
+      series.forEach((sr, k) => { dots[k].setAttribute("cx", x); dots[k].setAttribute("cy", Y(sr.vals[i])); dots[k].setAttribute("visibility", "visible"); });
+      const head = state.step === "week" ? `Week ${weekOf(xs[i]).w} · ${fmtDate(xs[i])}–${fmtDate(xs[i] + 6 * DAY)}` : fmtDate(xs[i], { weekday: "short", month: "short", day: "numeric" });
+      const nBets = series.reduce((a, sr) => a + sr.n[i], 0), dayPL = r2(series.reduce((a, sr) => a + sr.delta[i], 0));
+      const ordered = [...series].sort((a, b) => b.vals[i] - a.vals[i]);
+      tip.replaceChildren(
+        h("div", { class: "th" }, head),
+        ...ordered.map((sr) => h("div", { class: "tr" }, h("span", {}, h("i", { class: "key", style: `background:var(${sr.color})` }), sr.name), h("b", { class: "num " + cls(sr.vals[i]) }, money(sr.vals[i])))),
+        h("div", { class: "th", style: "margin:6px 0 0" }, `${nBets} bet${nBets === 1 ? "" : "s"} settled · ${money(dayPL)} ${state.step === "week" ? "this week" : "that day"}`),
+      );
+      tip.hidden = false;
+      const bw = box.clientWidth, tw = tip.offsetWidth, px = (x / W) * bw;
+      tip.style.left = Math.max(0, Math.min(bw - tw, px + (px > bw / 2 ? -tw - 12 : 12))) + "px";
+      tip.style.top = "6px";
+    }
+    function hide() { tip.hidden = true; cross.setAttribute("visibility", "hidden"); dots.forEach((d) => d.setAttribute("visibility", "hidden")); }
+    function nearest(evt) {
+      const rect = svg.getBoundingClientRect();
+      const px = ((evt.clientX - rect.left) / rect.width) * W;
+      let best = 0, bd = Infinity;
+      xs.forEach((_, i) => { const d = Math.abs(X(i) - px); if (d < bd) { bd = d; best = i; } });
+      return best;
+    }
+    let cur = xs.length - 1;
+    hit.addEventListener("pointermove", (e) => { cur = nearest(e); show(cur); });
+    hit.addEventListener("pointerdown", (e) => { cur = nearest(e); show(cur); });
+    hit.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse") hide(); });
+    hit.addEventListener("focus", () => show(cur));
+    hit.addEventListener("blur", hide);
+    hit.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft") { cur = Math.max(0, cur - 1); show(cur); e.preventDefault(); }
+      if (e.key === "ArrowRight") { cur = Math.min(xs.length - 1, cur + 1); show(cur); e.preventDefault(); }
+      if (e.key === "Escape") hide();
+    });
+
+    if (series.length > 1) {
+      legend.append(...[...series].sort((a, b) => b.vals[b.vals.length - 1] - a.vals[a.vals.length - 1]).map((sr) => {
+        const v = sr.vals[sr.vals.length - 1];
+        return h("span", {}, h("i", { class: "key", style: `background:var(${sr.color});width:14px` }), sr.name, h("b", { class: "num " + cls(v) }, money(v)));
+      }));
+    }
+  }
+
+  // ---------- breakdown bars ----------
+  function renderBars(dim, order) {
+    const el = $("#b-" + dim);
+    const rows = settledRows(dim);
+    const g = new Map();
+    for (const b of rows) {
+      const k = b[dim];
+      const a = g.get(k) || { k, pl: 0, n: 0, cash: 0, w: 0, l: 0 };
+      a.pl += b.pl; a.n++; a.cash += b.cash; if (b.result === "Won") a.w++; if (b.result === "Lost") a.l++;
+      g.set(k, a);
+    }
+    let items = [...g.values()].map((a) => ({ ...a, pl: r2(a.pl) }));
+    if (dim === "verdict") items.sort((a, b) => order.indexOf(a.k) - order.indexOf(b.k));
+    else items.sort((a, b) => b.pl - a.pl);
+    el.replaceChildren();
+    if (!items.length) { el.append(h("div", { class: "empty" }, state.loaded ? "No settled bets match these filters." : "Loading…")); return; }
+    const lo = Math.min(0, ...items.map((i) => i.pl)), hi = Math.max(0, ...items.map((i) => i.pl));
+    const span = hi - lo || 1, z = ((0 - lo) / span) * 100;
+    const set = state.f[dim];
+    for (const it of items) {
+      const vp = ((it.pl - lo) / span) * 100;
+      const left = Math.min(z, vp), width = Math.abs(vp - z);
+      const roi = it.cash > 0 ? pct(it.pl / it.cash) + " ROI" : "no cash risked";
+      const selected = set.has(it.k), dim_ = set.size > 0 && !selected;
+      el.append(h("button", {
+        type: "button", class: "bar" + (dim_ ? " dim" : "") + (selected ? " sel" : ""), "aria-pressed": String(selected),
+        "aria-label": `${it.k}: ${money(it.pl)} over ${it.n} bets, ${roi}. ${selected ? "Remove filter" : "Filter to this"}`,
+        onclick: () => toggle(dim, it.k),
+      },
+        h("span", { class: "bn" }, dim === "league" ? h("i", { class: "key", style: `background:var(${LEAGUE_COLOR[it.k] || "--s0"});width:10px;height:3px` }) : null, it.k),
+        h("span", { class: "bv num " + cls(it.pl) }, money(it.pl)),
+        h("span", { class: "track", "aria-hidden": "true" },
+          h("span", { class: "zero", style: `left:${z}%` }),
+          h("span", { class: "fill", style: `left:${left}%;width:${width}%;background:var(${it.pl >= 0 ? "--good-mark" : "--bad-mark"});border-radius:${it.pl >= 0 ? "0 4px 4px 0" : "4px 0 0 4px"}` })),
+        h("span", { class: "bs num" }, `${it.n} bet${it.n === 1 ? "" : "s"} · ${it.w}-${it.l} · ${roi}`),
+      ));
+    }
+  }
+
+  // ---------- lists ----------
+  function meta(b, dateLabel) {
+    return [dateLabel, b.league, b.promo !== "None" ? b.promo : null, b.book, b.verdict !== "No verdict" ? b.verdict : null].filter(Boolean).join(" · ");
+  }
+  function renderLists() {
+    const open = openRows().sort((a, b) => a.t - b.t);
+    const ol = $("#openList");
+    ol.replaceChildren(...(open.length ? open.map((b) => h("div", { class: "row" },
+      h("span", { class: "rt" }, b.bet),
+      h("span", { class: "rv num" }, money(b.stake, false)),
+      h("span", { class: "rm" }, meta(b, "Settles " + fmtDate(b.t, { month: "short", day: "numeric", year: b.t - todayT() > 180 * DAY ? "numeric" : undefined })) + (b.game ? " · " + b.game : "")),
+      h("span", { class: "rr num" }, (odds(b.odds) || "") + (b.promo === "Bonus bet" ? " · bonus" : ""))))
+      : [h("div", { class: "empty" }, state.loaded ? "No open bets match these filters." : "Loading…")]));
+
+    const settled = settledRows().sort((a, b) => b.t - a.t || (b.pl - a.pl));
+    $("#settledSub").textContent = `Newest first · ${settled.length} bet${settled.length === 1 ? "" : "s"}`;
+    const sl = $("#settledList");
+    sl.replaceChildren(...(settled.length ? settled.slice(0, state.shown).map((b) => h("div", { class: "row" },
+      h("span", { class: "rt" }, b.bet, b.missing ? h("span", { class: "pill", title: "Returned is blank in Notion, so P/L may be understated" }, "check Returned") : null),
+      h("span", { class: "rv num " + cls(b.pl) }, money(b.pl)),
+      h("span", { class: "rm" }, meta(b, fmtDate(b.t))),
+      h("span", { class: "rr" }, b.result + (b.odds != null ? " · " + odds(b.odds) : ""))))
+      : [h("div", { class: "empty" }, state.loaded ? "No settled bets match these filters." : "Loading…")]));
+    const more = $("#moreBtn");
+    more.hidden = settled.length <= state.shown;
+    more.textContent = `Show more (${settled.length - state.shown} left)`;
+  }
+
+  function renderAll() {
+    renderFilters(); renderKpis(); renderLine();
+    renderBars("promo", PROMOS); renderBars("verdict", VERDICTS); renderBars("league", LEAGUES); renderBars("book", BOOKS);
+    renderLists();
+  }
+
+  // ---------- controls ----------
+  document.querySelectorAll("[data-split]").forEach((b) => b.addEventListener("click", () => {
+    state.split = b.dataset.split;
+    document.querySelectorAll("[data-split]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    renderLine();
+  }));
+  document.querySelectorAll("[data-step]").forEach((b) => b.addEventListener("click", () => {
+    state.step = b.dataset.step;
+    document.querySelectorAll("[data-step]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    renderLine();
+  }));
+  $("#moreBtn").addEventListener("click", () => { state.shown += 20; renderLists(); });
+  let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(renderLine, 120); });
+
+  // ---------- status ----------
+  let lastAt = null;
+  function setFresh(kind, text) { $("#dot").className = "dot " + (kind || ""); $("#freshText").textContent = text; }
+  function updatedText() { return lastAt ? `Updated ${new Date(lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}` : ""; }
+  let healthy = false;
+  setInterval(() => { if (lastAt && healthy) setFresh(Date.now() - lastAt > 5 * 60000 ? "stale" : "live", updatedText()); }, 30000);
+  function banner(kind, text, action) {
+    const b = $("#banner");
+    if (!text) { b.hidden = true; b.replaceChildren(); return; }
+    b.className = "banner" + (kind === "err" ? " err" : "");
+    b.replaceChildren(h("p", {}, text));
+    if (action) b.append(action);
+    b.hidden = false;
+  }
+
+  // ---------- data ----------
+  let mcp = null, seq = 0, retried = false;
+  const INPUT = { data: { mode: "view", view_url: VIEW, page_size: 100 } };
+
+  async function loadRest(first) {
+    const rows = [...(first.results || [])];
+    let cur = first.has_more ? first.next_cursor : null, guard = 0;
+    while (cur && guard++ < 50) {
+      const res = await mcp.callTool(SERVER, TOOL, { data: { mode: "view", view_url: VIEW, page_size: 100, start_cursor: cur } }, { cache: false });
+      const p = res.payload || {};
+      rows.push(...(p.results || []));
+      cur = p.has_more ? p.next_cursor : null;
+    }
+    return rows;
+  }
+
+  async function onPayload(result) {
+    const my = ++seq;
+    const p = result && result.payload;
+    if (!p || typeof p !== "object" || !Array.isArray(p.results)) { handleError({ code: "tool_error", message: "Notion sent back something this page couldn't read." }); return; }
+    try {
+      const raw = await loadRest(p);
+      if (my !== seq) return;
+      state.bets = raw.map(norm).filter(Boolean);
+      state.loaded = true; retried = false; healthy = true;
+      lastAt = (result.cache && result.cache.storedAt) || Date.now();
+      setFresh(result.cache && result.cache.revalidating ? "" : "live", updatedText() + (result.cache && result.cache.revalidating ? " · refreshing…" : ""));
+      banner(null);
+      const miss = state.bets.filter((b) => b.missing).length;
+      if (miss) banner("warn", `${miss} settled bet${miss === 1 ? " has" : "s have"} a blank Returned value, so ${miss === 1 ? "its" : "their"} P/L counts as a loss of the cash risked. Ask your Sports Bets chat to fill ${miss === 1 ? "it" : "them"} in.`);
+      renderAll();
+    } catch (e) { if (my === seq) handleError(e); }
+  }
+
+  function retract() { state.bets = []; state.loaded = false; renderAll(); }
+  function handleError(err) {
+    const code = (err && err.code) || "upstream_error";
+    healthy = false;
+    const keep = state.loaded ? ` Showing data from ${updatedText().replace("Updated ", "") || "earlier"}.` : "";
+    switch (code) {
+      case "needs_reauth":
+        retract(); setFresh("stale", "Not connected");
+        banner("err", "Your Notion connection has expired. Reconnect Notion in claude.ai Settings → Connectors, then reload this page."); break;
+      case "server_not_connected":
+        retract(); setFresh("stale", "Not connected");
+        banner("err", "Notion isn't connected for your account. Add it in claude.ai Settings → Connectors, then reload this page."); break;
+      case "selection_required":
+        retract(); setFresh("stale", "Waiting");
+        banner("err", "You have more than one Notion connection. Choose which one this page should use when Claude asks, then reload."); break;
+      case "approval_required":
+        setFresh("stale", "Needs approval");
+        banner("err", "This page needs your OK to read your Bet Log from Notion.",
+          h("button", { class: "btn", type: "button", onclick: async () => {
+            try { const r = await mcp.callTool(SERVER, TOOL, INPUT); onPayload(r); } catch (e) { handleError(e); }
+          } }, "Allow and load")); break;
+      case "not_in_manifest": case "not_granted": case "blocked_by_policy":
+        retract(); setFresh("stale", "No access");
+        banner("err", "This page isn't allowed to read Notion right now. Turn Notion on from this artifact's Permissions menu, then reload."); break;
+      case "capability_disabled": case "capability_removed":
+        retract(); setFresh("stale", "Unavailable");
+        banner("err", "This view can't reach your connectors. Open the dashboard on claude.ai while signed in."); break;
+      case "tool_error":
+        setFresh("stale", state.loaded ? updatedText() : "Error");
+        banner("err", "Notion couldn't run the Bet Log query: " + ((err && err.message) || "unknown error") + "." + keep); break;
+      default:
+        setFresh("stale", state.loaded ? updatedText() + " · retrying" : "Retrying");
+        banner("warn", "Notion didn't answer." + keep + " The page will try again shortly.");
+        if (err && err.retryable && !retried) {
+          retried = true;
+          setTimeout(() => mcp && mcp.invalidate(SERVER, TOOL, INPUT).catch(() => {}), (err.retryAfterMs || 3000) + Math.random() * 2000);
+        }
+    }
+  }
+
+  // ---------- promos expiring ----------
+  const PROMO_INPUT = { data: { mode: "view", view_url: "view://3f299d7c-3971-81d1-9084-000c08ff4bca", page_size: 100 } };
+  const HOUR = 3600000;
+  const promoState = { items: [], loaded: false, err: null, win: 72 };
+  const WIN_LABEL = { 24: "24 hours", 72: "72 hours", 168: "1 week", 336: "2 weeks" };
+  try { const w = Number(localStorage.getItem("promoWin")); if (WIN_LABEL[w]) promoState.win = w; } catch {}
+  function syncWinButtons() {
+    document.querySelectorAll("[data-win]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.win) === promoState.win)));
+    $("#promoTitle").textContent = "Promos expiring in " + WIN_LABEL[promoState.win];
+  }
+  document.querySelectorAll("[data-win]").forEach((b) => b.addEventListener("click", () => {
+    promoState.win = Number(b.dataset.win);
+    try { localStorage.setItem("promoWin", String(promoState.win)); } catch {}
+    syncWinButtons(); renderPromos();
+  }));
+  syncWinButtons();
+  const unescapeMd = (t) => String(t || "").replace(/\\([$~*_`#\[\]()>-])/g, "$1");
+  function expiryOf(r) {
+    const raw = r["date:Expires:start"];
+    if (!raw) return null;
+    if (r["date:Expires:is_datetime"] === 1 || raw.length > 10) { const t = Date.parse(raw); return Number.isFinite(t) ? t : null; }
+    // Date-only: treat as the end of that day, US Central (deadline convention for this database).
+    const [y, mo, d] = raw.split("-").map(Number);
+    const noonUtc = Date.UTC(y, mo - 1, d, 12);
+    const centralHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hourCycle: "h23" }).format(noonUtc));
+    const offsetH = 12 - centralHour; // 5 (CDT) or 6 (CST)
+    return Date.UTC(y, mo - 1, d, 23 + offsetH, 59);
+  }
+  function normPromo(r) {
+    const exp = expiryOf(r);
+    if (exp == null) return null;
+    return {
+      name: unescapeMd(r.Promo) || "Untitled promo", book: r.Book || "", type: r.Type || "",
+      amount: num(r.Amount), boost: num(r["Boost %"]), exp, termsRead: r["Terms read"] === "__YES__",
+      terms: unescapeMd(r.Terms).trim(),
+    };
+  }
+  function left(ms) {
+    if (ms <= 0) return "expired";
+    const m = Math.round(ms / 60000);
+    if (m < 60) return `${m}m left`;
+    const hh = Math.floor(m / 60), mm = m % 60;
+    if (hh < 24) return `${hh}h ${mm}m left`;
+    return `${Math.floor(hh / 24)}d ${hh % 24}h left`;
+  }
+  const whenText = (t) => new Date(t).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const promoValue = (p) => (p.amount != null ? money(p.amount, false) : p.boost != null ? `${Math.round(p.boost * 100)}% boost` : "");
+  function renderPromos() {
+    const list = $("#promoList"), note = $("#promoNote");
+    note.hidden = true;
+    if (!promoState.loaded) {
+      if (promoState.err) list.replaceChildren(h("div", { class: "empty" }, promoState.err));
+      return;
+    }
+    const now = Date.now();
+    const live = promoState.items.filter((p) => p.exp > now).sort((a, b) => a.exp - b.exp);
+    const winMs = promoState.win * HOUR;
+    const soon = live.filter((p) => p.exp <= now + winMs);
+    const later = live.filter((p) => p.exp > now + winMs);
+    const cash = soon.reduce((a, p) => a + (p.type === "Bonus bet" && p.amount ? p.amount : 0), 0);
+    $("#promoSub").textContent = soon.length
+      ? `${soon.length} promo${soon.length === 1 ? "" : "s"} to use${cash ? ` · ${money(cash, false)} in bonus bets` : ""} · times shown in your time zone`
+      : "Available promos from your Promos database, soonest first";
+    list.replaceChildren(...(soon.length ? soon.map((p) => {
+      const ms = p.exp - now, u = ms <= 12 * HOUR ? "u-crit" : ms <= 24 * HOUR ? "u-warn" : "";
+      return h("div", { class: "promo " + u },
+        h("span", { class: "pt" }, p.name, p.termsRead ? null : h("span", { class: "pill warn", title: "The promo info screen hasn't been read yet" }, "terms unread")),
+        h("span", { class: "pv num" }, promoValue(p)),
+        h("span", { class: "pm" }, [p.book, p.type, "Place by " + whenText(p.exp)].filter(Boolean).join(" · ")),
+        h("span", { class: "pc num" }, left(ms)),
+        p.terms ? h("span", { class: "px" }, p.terms) : null);
+    }) : [h("div", { class: "empty" }, `Nothing expires in the next ${WIN_LABEL[promoState.win]}.`)]));
+    if (later.length) {
+      const n = later[0], sameTime = later.filter((p) => p.exp === n.exp).length;
+      list.after(note);
+      note.className = "next"; note.hidden = false;
+      note.replaceChildren("Next: ", h("b", {}, n.name), sameTime > 1 ? ` (+${sameTime - 1} more)` : "", ` · ${whenText(n.exp)} · ${left(n.exp - now).replace(" left", "")} away`);
+    }
+    if (promoState.err) {
+      const extra = h("p", { class: "secnote" }, promoState.err);
+      list.append(extra);
+    }
+  }
+  function promoError(err) {
+    const code = (err && err.code) || "upstream_error";
+    const authz = ["needs_reauth", "server_not_connected", "selection_required", "not_in_manifest", "not_granted", "blocked_by_policy", "capability_disabled", "capability_removed", "approval_required"];
+    if (authz.includes(code)) { promoState.items = []; promoState.loaded = false; promoState.err = "Promos can't load until Notion access is fixed (see the message at the top)."; }
+    else if (code === "tool_error") promoState.err = "Notion couldn't read the Promos database: " + ((err && err.message) || "unknown error") + ".";
+    else promoState.err = promoState.loaded ? "Notion didn't answer just now. Showing the last promos loaded." : "Notion didn't answer. Promos will load on the next refresh.";
+    renderPromos();
+  }
+  function onPromos(result) {
+    const p = result && result.payload;
+    if (!p || !Array.isArray(p.results)) { promoError({ code: "tool_error", message: "unexpected response" }); return; }
+    promoState.items = p.results.filter((r) => !r.Status || r.Status === "Available").map(normPromo).filter(Boolean);
+    promoState.loaded = true; promoState.err = p.has_more ? "Showing the first 100 available promos." : null;
+    renderPromos();
+  }
+  setInterval(renderPromos, 60000);
+
+  $("#refreshBtn").addEventListener("click", async () => {
+    if (!mcp) return;
+    setFresh("", "Refreshing…");
+    try { await mcp.invalidate(SERVER, TOOL); }
+    catch { try { onPayload(await mcp.callTool(SERVER, TOOL, INPUT, { cache: { refresh: true } })); } catch (e) { handleError(e); } }
+  });
+
+  renderAll();
+  onPayload({ payload: { results: BETS, has_more: false } }).then(() => {
+    healthy = false;
+    setFresh("", "Snapshot · Oct 9, 2026");
+  });
+})();
+</script>
+
+</body></html>
