@@ -154,7 +154,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     <div class="kpi"><span class="k">Open bets</span><div class="skel" style="height:28px;width:40%"></div></div>
     </section>
 
-  <section class="card" id="promoCard" hidden aria-labelledby="promoTitle">
+  <section class="card" id="promoCard" aria-labelledby="promoTitle">
     <div class="chead">
       <div><h2 id="promoTitle">Promos expiring in 72 hours</h2><p class="sub" id="promoSub">Available promos from your Promos database, soonest first</p></div>
       <div class="seg" role="group" aria-label="Expiry window"><button type="button" data-win="24" aria-pressed="false">24h</button><button type="button" data-win="72" aria-pressed="true">72h</button><button type="button" data-win="168" aria-pressed="false">1 wk</button><button type="button" data-win="336" aria-pressed="false">2 wk</button></div>
@@ -647,7 +647,6 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   }
 
   // ---------- promos expiring ----------
-  const PROMO_INPUT = { data: { mode: "view", view_url: "view://3f299d7c-3971-81d1-9084-000c08ff4bca", page_size: 100 } };
   const HOUR = 3600000;
   const promoState = { items: [], loaded: false, err: null, win: 72 };
   const WIN_LABEL = { 24: "24 hours", 72: "72 hours", 168: "1 week", 336: "2 weeks" };
@@ -662,25 +661,12 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     syncWinButtons(); renderPromos();
   }));
   syncWinButtons();
-  const unescapeMd = (t) => String(t || "").replace(/\\([$~*_`#\[\]()>-])/g, "$1");
-  function expiryOf(r) {
-    const raw = r["date:Expires:start"];
-    if (!raw) return null;
-    if (r["date:Expires:is_datetime"] === 1 || raw.length > 10) { const t = Date.parse(raw); return Number.isFinite(t) ? t : null; }
-    // Date-only: treat as the end of that day, US Central (deadline convention for this database).
-    const [y, mo, d] = raw.split("-").map(Number);
-    const noonUtc = Date.UTC(y, mo - 1, d, 12);
-    const centralHour = Number(new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", hourCycle: "h23" }).format(noonUtc));
-    const offsetH = 12 - centralHour; // 5 (CDT) or 6 (CST)
-    return Date.UTC(y, mo - 1, d, 23 + offsetH, 59);
-  }
   function normPromo(r) {
-    const exp = expiryOf(r);
-    if (exp == null) return null;
+    const exp = Date.parse(r.expires_at);
+    if (!Number.isFinite(exp)) return null;
     return {
-      name: unescapeMd(r.Promo) || "Untitled promo", book: r.Book || "", type: r.Type || "",
-      amount: num(r.Amount), boost: num(r["Boost %"]), exp, termsRead: r["Terms read"] === "__YES__",
-      terms: unescapeMd(r.Terms).trim(),
+      name: r.name || "Untitled promo", book: r.book || "", type: r.type || "",
+      amount: num(r.amount), boost: num(r.boost_pct), exp, termsRead: !!r.terms_read, terms: (r.terms || "").trim(),
     };
   }
   function left(ms) {
@@ -729,19 +715,8 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
       list.append(extra);
     }
   }
-  function promoError(err) {
-    const code = (err && err.code) || "upstream_error";
-    const authz = ["needs_reauth", "server_not_connected", "selection_required", "not_in_manifest", "not_granted", "blocked_by_policy", "capability_disabled", "capability_removed", "approval_required"];
-    if (authz.includes(code)) { promoState.items = []; promoState.loaded = false; promoState.err = "Promos can't load until Notion access is fixed (see the message at the top)."; }
-    else if (code === "tool_error") promoState.err = "Notion couldn't read the Promos database: " + ((err && err.message) || "unknown error") + ".";
-    else promoState.err = promoState.loaded ? "Notion didn't answer just now. Showing the last promos loaded." : "Notion didn't answer. Promos will load on the next refresh.";
-    renderPromos();
-  }
-  function onPromos(result) {
-    const p = result && result.payload;
-    if (!p || !Array.isArray(p.results)) { promoError({ code: "tool_error", message: "unexpected response" }); return; }
-    promoState.items = p.results.filter((r) => !r.Status || r.Status === "Available").map(normPromo).filter(Boolean);
-    promoState.loaded = true; promoState.err = p.has_more ? "Showing the first 100 available promos." : null;
+  function promoError() {
+    promoState.err = promoState.loaded ? "Couldn't reach the database just now. Showing the last promos loaded." : "Couldn't load promos. Trying again in a minute.";
     renderPromos();
   }
   setInterval(renderPromos, 60000);
@@ -758,6 +733,16 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const SB_URL = "https://pqkteawpnislalfxxtvc.supabase.co";
   const SB_KEY = "sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG";
   const COLS = "id,bet,game,settle_date,league,promo,verdict,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct";
+  const PROMO_COLS = "name,book,type,amount,boost_pct,expires_at,terms,terms_read";
+  async function fetchPromos() {
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/promos?select=${PROMO_COLS}&status=eq.Available&order=expires_at&limit=1000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      promoState.items = (await r.json()).map(normPromo).filter(Boolean);
+      promoState.loaded = true; promoState.err = null;
+      renderPromos();
+    } catch { promoError(); }
+  }
   async function fetchBets() {
     const r = await fetch(`${SB_URL}/rest/v1/bets?select=${COLS}&order=settle_date.desc&limit=10000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
     if (!r.ok) throw { code: "upstream_error", message: "HTTP " + r.status };
@@ -771,6 +756,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   async function load() {
     if (loading) return;
     loading = true;
+    fetchPromos();
     try { await onPayload({ payload: { results: await fetchBets(), has_more: false } }); }
     catch (e) { handleError(e && e.code ? e : { code: "upstream_error" }); }
     finally { loading = false; }
