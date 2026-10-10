@@ -118,6 +118,16 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
 .promo .pc{text-align:right;font-size:12.5px;font-weight:600;white-space:nowrap}
 .promo .px{grid-column:1/-1;font-size:12.5px;color:var(--ink-2);overflow-wrap:anywhere}
 .u-crit .pc{color:var(--bad)} .u-warn .pc{color:var(--warn)}
+.pbar{display:flex;align-items:center;gap:10px;width:100%;border:0;background:none;padding:0;margin:0;cursor:pointer;text-align:left;color:inherit;font:inherit;min-height:36px}
+.ptitle{font-size:16px;font-weight:600;letter-spacing:-.005em;flex:none}
+.pstats{flex:1 1 auto;min-width:0;font-size:13px;color:var(--ink-2);display:flex;flex-wrap:wrap;gap:2px 12px}
+.pstats b{color:var(--ink);font-weight:650}
+.pstats .pcrit{color:var(--bad);font-weight:600}
+.chev{flex:none;width:9px;height:9px;border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);transform:translateY(-2px) rotate(45deg);margin-right:4px}
+.pbar[aria-expanded="true"] .chev{transform:translateY(2px) rotate(-135deg)}
+#promoBody:not([hidden]){display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:10px}
+.promo .pe{grid-column:1/-1;font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.promo .pe b{font-weight:600}
 .pill.warn{background:transparent;border:1px solid var(--warn);color:var(--warn)}
 .next{font-size:13px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px}
 .next b{color:var(--ink);font-weight:600}
@@ -154,13 +164,20 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     <div class="kpi"><span class="k">Open bets</span><div class="skel" style="height:28px;width:40%"></div></div>
     </section>
 
-  <section class="card" id="promoCard" aria-labelledby="promoTitle">
-    <div class="chead">
-      <div><h2 id="promoTitle">Promos expiring in 72 hours</h2><p class="sub" id="promoSub">Available promos from your Promos database, soonest first</p></div>
-      <div class="seg" role="group" aria-label="Expiry window"><button type="button" data-win="24" aria-pressed="false">24h</button><button type="button" data-win="72" aria-pressed="true">72h</button><button type="button" data-win="168" aria-pressed="false">1 wk</button><button type="button" data-win="336" aria-pressed="false">2 wk</button></div>
+  <section class="card" id="promoCard">
+    <button type="button" class="pbar" id="promoToggle" aria-expanded="false" aria-controls="promoBody">
+      <span class="ptitle">Promos</span>
+      <span class="pstats" id="promoStats"><span class="skel" style="width:160px"></span></span>
+      <span class="chev" aria-hidden="true"></span>
+    </button>
+    <div id="promoBody" hidden>
+      <div class="chead">
+        <p class="sub" id="promoSub">Available promos, soonest first</p>
+        <div class="seg" role="group" aria-label="Expiry window"><button type="button" data-win="24" aria-pressed="false">24h</button><button type="button" data-win="72" aria-pressed="true">72h</button><button type="button" data-win="168" aria-pressed="false">1 wk</button><button type="button" data-win="336" aria-pressed="false">2 wk</button></div>
+      </div>
+      <div class="list" id="promoList"><div class="skel" style="height:44px"></div></div>
+      <p class="secnote" id="promoNote" hidden></p>
     </div>
-    <div class="list" id="promoList"><div class="skel" style="height:44px"></div></div>
-    <p class="secnote" id="promoNote" hidden></p>
   </section>
 
   <section class="card">
@@ -200,7 +217,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const LEAGUE_COLOR = { NFL: "--s1", CFB: "--s2", MLB: "--s3", NHL: "--s4", NBA: "--s5", NCAAB: "--s6", Soccer: "--s7", Mixed: "--s8", Other: "--s0" };
   const PROMOS = ["None", "Profit boost", "Odds boost", "Bonus bet", "No-sweat", "Other"];
   const VERDICTS = ["Go", "Marginal", "Fun", "Pass", "No verdict"];
-  const BOOKS = ["DraftKings", "FanDuel", "bet365", "Novig", "Kalshi", "Polymarket", "Other"];
+  const BOOKS = ["DraftKings", "FanDuel", "bet365", "Novig", "Kalshi", "Polymarket", "Caesars", "Fanatics", "Other"];
   const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"].map(toT);
   const DAY = 86400000;
 
@@ -311,6 +328,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     const dims = { league: LEAGUES, promo: PROMOS, verdict: VERDICTS, book: BOOKS };
     for (const [k, order] of Object.entries(dims)) {
       const present = new Set(state.bets.map((b) => b[k]));
+      if (k !== "verdict") for (const pr of promoState.items) if (pr[k]) present.add(pr[k]);
       const vals = order.filter((v) => present.has(v)).concat([...present].filter((v) => !order.includes(v)).sort());
       const box = $("#f-" + k);
       const set = state.f[k];
@@ -538,7 +556,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   }
 
   function renderAll() {
-    renderFilters(); renderKpis(); renderLine();
+    renderFilters(); renderKpis(); renderLine(); renderPromos();
     renderBars("promo", PROMOS); renderBars("verdict", VERDICTS); renderBars("league", LEAGUES); renderBars("book", BOOKS);
     renderLists();
   }
@@ -650,10 +668,10 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const HOUR = 3600000;
   const promoState = { items: [], loaded: false, err: null, win: 72 };
   const WIN_LABEL = { 24: "24 hours", 72: "72 hours", 168: "1 week", 336: "2 weeks" };
+  const WIN_SHORT = { 24: "24h", 72: "72h", 168: "1 wk", 336: "2 wks" };
   try { const w = Number(localStorage.getItem("promoWin")); if (WIN_LABEL[w]) promoState.win = w; } catch {}
   function syncWinButtons() {
     document.querySelectorAll("[data-win]").forEach((b) => b.setAttribute("aria-pressed", String(Number(b.dataset.win) === promoState.win)));
-    $("#promoTitle").textContent = "Promos expiring in " + WIN_LABEL[promoState.win];
   }
   document.querySelectorAll("[data-win]").forEach((b) => b.addEventListener("click", () => {
     promoState.win = Number(b.dataset.win);
@@ -661,13 +679,31 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     syncWinButtons(); renderPromos();
   }));
   syncWinButtons();
+  function setPromoOpen(open) {
+    $("#promoToggle").setAttribute("aria-expanded", String(open));
+    $("#promoBody").hidden = !open;
+    try { localStorage.setItem("promoOpen", open ? "1" : "0"); } catch {}
+  }
+  $("#promoToggle").addEventListener("click", () => setPromoOpen($("#promoBody").hidden));
+  try { setPromoOpen(localStorage.getItem("promoOpen") === "1"); } catch { setPromoOpen(false); }
   function normPromo(r) {
     const exp = Date.parse(r.expires_at);
     if (!Number.isFinite(exp)) return null;
     return {
-      name: r.name || "Untitled promo", book: r.book || "", type: r.type || "",
+      name: r.name || "Untitled promo", book: r.book || "Other", type: r.type || "",
+      league: r.league || null,                                     // null = usable on any sport
+      promo: r.type === "SGP boost" ? "Profit boost" : r.type || "Other", // matches the bets' Promo categories
       amount: num(r.amount), boost: num(r.boost_pct), exp, termsRead: !!r.terms_read, terms: (r.terms || "").trim(),
+      ev: num(r.ev), basis: (r.ev_basis || "").trim(),
     };
+  }
+  // League, Promo and Book chips apply to promos; Range and Verdict don't. Any-sport promos pass every league filter.
+  function promoPasses(p) {
+    const f = state.f;
+    if (f.league.size && p.league && !f.league.has(p.league)) return false;
+    if (f.promo.size && !f.promo.has(p.promo)) return false;
+    if (f.book.size && !f.book.has(p.book)) return false;
+    return true;
   }
   function left(ms) {
     if (ms <= 0) return "expired";
@@ -680,40 +716,59 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const whenText = (t) => new Date(t).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   const promoValue = (p) => (p.amount != null ? money(p.amount, false) : p.boost != null ? `${Math.round(p.boost * 100)}% boost` : "");
   function renderPromos() {
-    const list = $("#promoList"), note = $("#promoNote");
+    const list = $("#promoList"), note = $("#promoNote"), stats = $("#promoStats");
     note.hidden = true;
     if (!promoState.loaded) {
-      if (promoState.err) list.replaceChildren(h("div", { class: "empty" }, promoState.err));
+      if (promoState.err) { list.replaceChildren(h("div", { class: "empty" }, promoState.err)); stats.replaceChildren(promoState.err); }
       return;
     }
     const now = Date.now();
-    const live = promoState.items.filter((p) => p.exp > now).sort((a, b) => a.exp - b.exp);
+    const live = promoState.items.filter((p) => p.exp > now && promoPasses(p)).sort((a, b) => a.exp - b.exp);
     const winMs = promoState.win * HOUR;
     const soon = live.filter((p) => p.exp <= now + winMs);
     const later = live.filter((p) => p.exp > now + winMs);
-    const cash = soon.reduce((a, p) => a + (p.type === "Bonus bet" && p.amount ? p.amount : 0), 0);
-    $("#promoSub").textContent = soon.length
-      ? `${soon.length} promo${soon.length === 1 ? "" : "s"} to use${cash ? ` · ${money(cash, false)} in bonus bets` : ""} · times shown in your time zone`
-      : "Available promos from your Promos database, soonest first";
+    const priced = soon.filter((p) => p.ev != null);
+    const ev = r2(priced.reduce((a, p) => a + p.ev, 0));
+    const crit = soon.filter((p) => p.exp - now <= 12 * HOUR).length;
+    const bonus = soon.reduce((a, p) => a + (p.type === "Bonus bet" && p.amount ? p.amount : 0), 0);
+
+    // Collapsed bar: count, est. EV, urgency.
+    stats.replaceChildren(...[
+      h("span", {}, h("b", { class: "num" }, String(soon.length)), ` expiring in ${WIN_SHORT[promoState.win]}`),
+      priced.length ? h("span", {}, "≈ ", h("b", { class: "num " + cls(ev) }, money(ev)), " est. EV",
+        priced.length < soon.length ? ` (${soon.length - priced.length} not priced)` : "") : null,
+      crit ? h("span", { class: "pcrit" }, `${crit} within 12h`) : null,
+      !soon.length && later.length ? h("span", {}, `next in ${left(later[0].exp - now).replace(" left", "")}`) : null,
+    ].filter(Boolean));
+
+    const ignored = state.range !== "all" || state.f.verdict.size;
+    $("#promoSub").textContent = [
+      "Soonest first, times in your time zone",
+      bonus ? `${money(bonus, false)} in bonus bets` : null,
+      "Est. EV assumes max stake at the odds limit in the terms",
+      ignored ? "Range and Verdict filters don't apply here" : null,
+    ].filter(Boolean).join(" · ");
+
+    const filtered = state.f.league.size || state.f.promo.size || state.f.book.size;
     list.replaceChildren(...(soon.length ? soon.map((p) => {
       const ms = p.exp - now, u = ms <= 12 * HOUR ? "u-crit" : ms <= 24 * HOUR ? "u-warn" : "";
       return h("div", { class: "promo " + u },
         h("span", { class: "pt" }, p.name, p.termsRead ? null : h("span", { class: "pill warn", title: "The promo info screen hasn't been read yet" }, "terms unread")),
         h("span", { class: "pv num" }, promoValue(p)),
-        h("span", { class: "pm" }, [p.book, p.type, "Place by " + whenText(p.exp)].filter(Boolean).join(" · ")),
+        h("span", { class: "pm" }, [p.book, p.league || "Any sport", p.type, "Place by " + whenText(p.exp)].filter(Boolean).join(" · ")),
         h("span", { class: "pc num" }, left(ms)),
+        h("span", { class: "pe" }, p.ev != null
+          ? ["Est. EV ", h("b", { class: "num " + cls(p.ev) }, money(p.ev)), p.basis ? " · " + p.basis : ""]
+          : "No EV estimate" + (p.basis ? ": " + p.basis : "")),
         p.terms ? h("span", { class: "px" }, p.terms) : null);
-    }) : [h("div", { class: "empty" }, `Nothing expires in the next ${WIN_LABEL[promoState.win]}.`)]));
+    }) : [h("div", { class: "empty" }, `Nothing${filtered ? " matching these filters" : ""} expires in the next ${WIN_LABEL[promoState.win]}.`)]));
     if (later.length) {
       const n = later[0], sameTime = later.filter((p) => p.exp === n.exp).length;
       list.after(note);
       note.className = "next"; note.hidden = false;
       note.replaceChildren("Next: ", h("b", {}, n.name), sameTime > 1 ? ` (+${sameTime - 1} more)` : "", ` · ${whenText(n.exp)} · ${left(n.exp - now).replace(" left", "")} away`);
     }
-    if (promoState.err) {
-      const extra = h("p", { class: "secnote" }, promoState.err);
-      list.append(extra);
-    }
+    if (promoState.err) list.append(h("p", { class: "secnote" }, promoState.err));
   }
   function promoError() {
     promoState.err = promoState.loaded ? "Couldn't reach the database just now. Showing the last promos loaded." : "Couldn't load promos. Trying again in a minute.";
@@ -733,14 +788,14 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const SB_URL = "https://pqkteawpnislalfxxtvc.supabase.co";
   const SB_KEY = "sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG";
   const COLS = "id,bet,game,settle_date,league,promo,verdict,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct";
-  const PROMO_COLS = "name,book,type,amount,boost_pct,expires_at,terms,terms_read";
+  const PROMO_COLS = "name,book,type,league,amount,boost_pct,expires_at,terms,terms_read,ev,ev_basis";
   async function fetchPromos() {
     try {
       const r = await fetch(`${SB_URL}/rest/v1/promos?select=${PROMO_COLS}&status=eq.Available&order=expires_at&limit=1000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       promoState.items = (await r.json()).map(normPromo).filter(Boolean);
       promoState.loaded = true; promoState.err = null;
-      renderPromos();
+      renderFilters(); renderPromos();
     } catch { promoError(); }
   }
   async function fetchBets() {
