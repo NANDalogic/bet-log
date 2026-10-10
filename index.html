@@ -250,10 +250,11 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const PROJECT_START = "2026-09-27";   // first bet priced by the Sports Bets Project (first logged verdict)
   const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"].map(toT);
   const DAY = 86400000;
+  const DEFAULT_RANGE = "setup";   // page opens on "Since setup"; Clear filters returns here
 
   const state = {
     bets: [], loaded: false,
-    range: "all", from: null, to: null,   // range: all | setup | 30 | 7 | week | custom (from/to = UTC day ms, inclusive)
+    range: DEFAULT_RANGE, from: null, to: null,   // range: all | setup | 30 | 7 | week | custom (from/to = UTC day ms, inclusive)
     f: { league: new Set(), promo: new Set(), verdict: new Set(), book: new Set() },
     split: "league", step: "day", shown: 20,
   };
@@ -353,7 +354,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   }
   const settledRows = (skip) => state.bets.filter((b) => b.settled && inRange(b) && passDims(b, skip));
   const openRows = () => state.bets.filter((b) => !b.settled && passDims(b));
-  const anyFilter = () => state.range !== "all" || Object.values(state.f).some((x) => x.size);
+  const anyFilter = () => state.range !== DEFAULT_RANGE || Object.values(state.f).some((x) => x.size);
 
   // ---------- filter chips ----------
   const RANGES = [["all", "All time"], ["setup", "Since setup"], ["30", "Last 30 days"], ["7", "Last 7 days"], ["week", "This betting week"]];
@@ -379,7 +380,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     if (anyFilter()) sum.append(h("button", { type: "button", class: "link", onclick: clearAll }, "Clear filters"));
   }
   function toggle(k, v) { const set = state.f[k]; set.has(v) ? set.delete(v) : set.add(v); state.shown = 20; renderAll(); }
-  function clearAll() { state.range = "all"; for (const set of Object.values(state.f)) set.clear(); state.shown = 20; renderAll(); }
+  function clearAll() { state.range = DEFAULT_RANGE; for (const set of Object.values(state.f)) set.clear(); state.shown = 20; renderAll(); }
 
   // ---------- KPIs ----------
   function kpi(label, value, valueCls, sub) {
