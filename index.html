@@ -247,12 +247,13 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const PROMOS = ["None", "Profit boost", "Odds boost", "Bonus bet", "No-sweat", "Other"];
   const VERDICTS = ["Go", "Marginal", "Fun", "Pass", "No verdict"];
   const BOOKS = ["DraftKings", "FanDuel", "bet365", "Novig", "Kalshi", "Polymarket", "Caesars", "Fanatics", "Other"];
+  const PROJECT_START = "2026-09-27";   // first bet priced by the Sports Bets Project (first logged verdict)
   const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"].map(toT);
   const DAY = 86400000;
 
   const state = {
     bets: [], loaded: false,
-    range: "all", from: null, to: null,   // range: all | 30 | 7 | week | custom (from/to = UTC day ms, inclusive)
+    range: "all", from: null, to: null,   // range: all | setup | 30 | 7 | week | custom (from/to = UTC day ms, inclusive)
     f: { league: new Set(), promo: new Set(), verdict: new Set(), book: new Set() },
     split: "league", step: "day", shown: 20,
   };
@@ -332,6 +333,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   function rangeBounds() {
     const today = todayT();
     if (state.range === "custom") return [state.from, state.to];
+    if (state.range === "setup") return [toT(PROJECT_START), today];
     if (state.range === "30") return [today - 29 * DAY, today];
     if (state.range === "7") return [today - 6 * DAY, today];
     if (state.range === "week") { const w = weekOf(today); return [w.start, w.start + 6 * DAY]; }
@@ -354,7 +356,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const anyFilter = () => state.range !== "all" || Object.values(state.f).some((x) => x.size);
 
   // ---------- filter chips ----------
-  const RANGES = [["all", "All time"], ["30", "Last 30 days"], ["7", "Last 7 days"], ["week", "This betting week"]];
+  const RANGES = [["all", "All time"], ["setup", "Since setup"], ["30", "Last 30 days"], ["7", "Last 7 days"], ["week", "This betting week"]];
   function renderFilters() {
     const rangeBox = $("#f-range");
     rangeBox.replaceChildren(...RANGES.map(([v, label]) =>
