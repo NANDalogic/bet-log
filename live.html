@@ -93,6 +93,13 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 .foot{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
 .foot .lines{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .skel{height:14px;border-radius:6px;background:var(--chip)}
+.pill.warn{background:transparent;border:1px solid var(--warn);color:var(--warn)}
+.row.skip .rt{color:var(--muted);text-decoration:line-through}
+.plannums{font-size:13.5px;color:var(--ink-2)}
+.trig{border-top:1px solid var(--line);padding:9px 0 9px 10px;border-left:3px solid transparent;display:flex;flex-direction:column;gap:2px}
+.trig.hit{border-left-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent)}
+.trig .tt{font-weight:600;font-size:14.5px}
+.trig .td{font-size:12.5px;color:var(--muted)}
 </style></head><body>
 <div class="wrap">
   <header>
@@ -106,6 +113,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   <div id="banner" hidden></div>
   <section class="card hero" id="hero"><div class="skel" style="height:44px;width:60%"></div><div class="skel" style="width:80%"></div></section>
   <section class="kpis" id="kpis"></section>
+  <section class="card" id="planCard" hidden></section>
   <section class="card" id="histCard" hidden><div><h2>Where it could end</h2><p class="sub">Chance of each final P/L range, from 20,000 simulated finishes</p></div><div class="chart" id="hist"></div></section>
   <section class="card" id="cheerCard" hidden><div><h2>Cheer for</h2><p class="sub">Biggest swings first · % = chance now · P/L if it happens / if it doesn't</p></div><div class="cheer" id="cheer"></div></section>
   <div id="games" style="display:flex;flex-direction:column;gap:14px"></div>
@@ -341,6 +349,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   const M = window.LiveModel;
   const SB_URL = "https://pqkteawpnislalfxxtvc.supabase.co";
   const SB_KEY = "sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG";
+  const PLAN_COLS = "id,created_at,plan_date,scope,target_p_black,target_on,withdrawn,banked_day,banked_week,p_black_day,p_black_week,ev,summary,triggers";
   const COLS = "id,bet,game,settle_date,league,promo,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct,fair_win_pct,to_pay,refund_on_loss,legs";
   const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"].map(toT);
   const DAY = 86400000;
@@ -389,7 +398,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
   let mode = "day";
   try { if (localStorage.getItem("liveMode") === "week") mode = "week"; } catch {}
-  const st = { bets: [], games: new Map(), lines: [], linesInfo: null, summaries: new Map(), loaded: false, err: null, lastAt: null };
+  const st = { bets: [], plans: [], planItems: [], games: new Map(), lines: [], linesInfo: null, summaries: new Map(), loaded: false, err: null, lastAt: null };
 
   function bounds() {
     const today = REPLAY ? toT(REPLAY) : localToday();
@@ -411,6 +420,38 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     // Load the whole week either way, so switching Today/This week needs no refetch.
     const w = weekOf(a), lo = Math.min(a, w.start), hi = Math.max(z, w.start + 6 * DAY);
     st.bets = await sb(`bets?select=${COLS}&settle_date=gte.${isoT(lo)}&settle_date=lte.${isoT(hi)}&order=settle_date&limit=2000`);
+    if (REPLAY) return;
+    try {   // the plan card is optional: a failure here never blocks the page
+      st.plans = await sb(`plans?select=${PLAN_COLS}&status=eq.active&plan_date=gte.${isoT(lo)}&plan_date=lte.${isoT(hi)}&order=created_at.desc&limit=10`);
+      st.planItems = st.plans.length ? await sb(`plan_items?select=*&plan_id=in.(${st.plans.map((x) => x.id).join(",")})&order=ord`) : [];
+    } catch { st.plans = []; st.planItems = []; }
+  }
+
+  // ---------- plan (made by the Sports Bets Project, saved in public.plans / plan_items) ----------
+  function currentPlan() {
+    const [a, z] = bounds();
+    const pl = st.plans.find((x) => { const t = toT(x.plan_date); return t >= a && t <= z; });
+    return pl ? { plan: pl, items: st.planItems.filter((i) => i.plan_id === pl.id) } : null;
+  }
+  const betIds = () => new Set(st.bets.map((b) => b.id));
+  function itemState(i, ids) {
+    if (i.status === "skipped") return "skipped";
+    if (i.status === "placed" || (i.bet_id && ids.has(i.bet_id))) return "placed";
+    const g = (i.legs || []).map(findGame).find(Boolean);
+    return g && g.state !== "pre" ? "missed" : "open";
+  }
+  // Unplaced items whose games haven't started, shaped like bet rows so build() can simulate them.
+  function unplacedAsBets(cp) {
+    const ids = betIds();
+    return (cp ? cp.items : []).filter((i) => itemState(i, ids) === "open" && (i.legs || []).length).map((i) => ({
+      id: "plan:" + i.id, bet: i.label, settle_date: cp.plan.plan_date, result: "Pending", legs: i.legs, book: i.book,
+      cash_risked: num(i.cash) ?? 0, stake: num(i.cash) ?? 0, to_pay: i.payout, refund_on_loss: i.refund_on_loss }));
+  }
+  // Legs the page needs ESPN data for beyond the bets: unplaced plan items and trigger games.
+  function planLegs() {
+    const cp = currentPlan();
+    if (!cp) return [];
+    return [...unplacedAsBets(cp).flatMap((b) => b.legs), ...(cp.plan.triggers || [])];
   }
 
   const espnDate = (d) => d.replaceAll("-", "");
@@ -432,7 +473,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
   async function loadGames() {
     const need = new Set();
-    for (const b of st.bets) for (const l of b.legs || []) if (ESPN[l.league] && l.date) need.add(l.league + "|" + l.date);
+    for (const l of [...st.bets.flatMap((b) => b.legs || []), ...planLegs()]) if (ESPN[l.league] && l.date) need.add(l.league + "|" + l.date);
     const results = await Promise.allSettled([...need].map(async (k) => {
       const [league, date] = k.split("|");
       const d = await getJSON(`https://site.api.espn.com/apis/site/v2/sports/${ESPN[league]}/scoreboard?dates=${espnDate(date)}&limit=300${ESPN_GROUPS[league] || ""}`);
@@ -449,7 +490,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   // Box scores, scoring plays (Early Win tokens) and ESPN's own line (fallback) come from the game summary.
   async function loadSummaries() {
     const want = new Map();
-    for (const b of st.bets) {
+    for (const b of [...st.bets, ...unplacedAsBets(currentPlan())]) {
       if (b.result !== "Pending" && !REPLAY) continue;
       for (const l of b.legs || []) {
         const g = findGame(l);
@@ -497,7 +538,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
   async function loadLines(refresh) {
     const leagues = new Set();
-    for (const b of st.bets) if (b.result === "Pending") for (const l of b.legs || []) if (ESPN[l.league]) leagues.add(l.league);
+    for (const b of [...st.bets, ...unplacedAsBets(currentPlan())]) if (b.result === "Pending") for (const l of b.legs || []) if (ESPN[l.league]) leagues.add(l.league);
     if (!leagues.size) { st.linesInfo = { none: true }; return; }
     const r = await fetch(`${SB_URL}/functions/v1/live-lines?leagues=${[...leagues].join(",")}${refresh ? "&refresh=1" : ""}`, { headers: { apikey: SB_KEY }, cache: "no-store" });
     const d = await r.json();
@@ -537,9 +578,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return cash === 0 ? profit : stake + profit;
   }
 
-  function build() {
+  function build(extra = []) {
     const [a, z] = bounds();
-    const view = st.bets.filter((b) => { const t = toT(b.settle_date); return t >= a && t <= z; });
+    const view = st.bets.filter((b) => { const t = toT(b.settle_date); return t >= a && t <= z; }).concat(extra);
     const games = {}, bets = [], meta = new Map(), gameBets = new Map(), lineSrc = {};
     const legsByGame = new Map();
     for (const b of view) for (const l of b.legs || []) { const g = findGame(l); if (g) (legsByGame.get(g.id) || legsByGame.set(g.id, []).get(g.id)).push(l); }
@@ -614,6 +655,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       hero.replaceChildren(h("span", { class: "lead" }, `No bets ${mode === "day" ? "settling today" : "this betting week"}.`),
         h("span", { class: "meta" }, mode === "day" ? "Futures and later games aren't counted. Try This week." : "Futures aren't counted."));
       $("#kpis").replaceChildren(); $("#histCard").hidden = $("#cheerCard").hidden = $("#settledCard").hidden = true; $("#games").replaceChildren();
+      renderPlan(null);
       renderLinesInfo();
       return;
     }
@@ -639,6 +681,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       kpi("Locked in", money(res.fixed), cls(res.fixed), `${settled.length} settled`),
       kpi("Worst case", money0(S.min), cls(S.min), `best case ${money0(S.max)}`));
 
+    renderPlan(res);
     renderHist(S, pend.length > 0);
     renderCheer(res, P);
     renderGames(res, P);
@@ -733,6 +776,81 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
         h("div", {}, ...ids.map((id) => betRow(P.meta.get(id), pb.get(id))))));
     }
     $("#games").replaceChildren(...cards);
+  }
+
+  // P(final P/L above a line). Week plans start from banked − withdrawn, so their "black" line is the withdrawal.
+  function pAbove(res, line) { let k = 0; for (let i = 0; i < res.n; i++) if (res.pl[i] > line + 0.005) k++; return k / res.n; }
+
+  // Live hedge at win chance q for our side: bet the other side at its fair price so both outcomes pay the same.
+  function hedgeAt(t, q) {
+    const good = num(t.pl_if_ours_wins), bad = num(t.pl_if_ours_loses), d = 1 / (1 - q);
+    const stake = (good - bad) / d;
+    return { good, bad, stake, locked: good - stake, odds: "+" + Math.round((d - 1) * 100) };
+  }
+
+  function renderPlan(res) {
+    const card = $("#planCard"), cp = REPLAY ? null : currentPlan();
+    card.hidden = !cp;
+    document.title = "Live Bets";
+    if (!cp) return;
+    const { plan, items } = cp, ids = betIds();
+    const line = mode === "week" ? num(plan.withdrawn) || 0 : 0;
+    const word = mode === "day" ? "today" : "for the week";
+    const target = num(plan.target_p_black);
+    const head = [`made ${new Date(plan.created_at).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}`,
+      target != null ? `target ≥${pctS(target)} ${plan.scope === "week" ? "for the week" : "that day"}` : "max EV"];
+    if (num(plan.withdrawn)) head.push(`${money(num(plan.withdrawn), false)} withdrawn counts as banked`);
+
+    // Planned vs now vs "if you place the rest".
+    const planned = num(mode === "week" ? plan.p_black_week : plan.p_black_day);
+    const extra = unplacedAsBets(cp);
+    let nums = (planned != null ? `Planned ${pctS(planned)} → ` : "") + (res ? `now ${pctS(pAbove(res, line))} with placed bets` : "nothing placed yet");
+    if (extra.length) {
+      const P2 = build(extra);
+      const r2 = M.run({ games: P2.games, bets: P2.bets, n: 20000, seed: 7 });
+      nums += ` · with the ${extra.length} unplaced: ${pctS(pAbove(r2, line))}`;
+    }
+    nums += ` (chance to finish ${word} ${line ? "above " + money(line, false) : "in the black"})`;
+
+    const rows = items.map((i) => {
+      const stt = itemState(i, ids);
+      const g = (i.legs || []).map(findGame).find(Boolean);
+      const pill = stt === "placed" ? h("span", { class: "pill won" }, "✓ Placed")
+        : stt === "skipped" ? h("span", { class: "pill" }, "Skipped")
+        : stt === "missed" ? h("span", { class: "pill warn" }, "Started · not placed")
+        : h("span", { class: "pill" }, g ? new Date(g.date).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "Not placed");
+      return h("div", { class: "row" + (stt === "skipped" ? " skip" : "") },
+        h("span", { class: "rt" }, i.label), pill,
+        h("span", { class: "rm" }, [i.book, i.slip, i.is_hedge ? "hedge" : null, num(i.cash) === 0 ? "bonus bet" : null].filter(Boolean).join(" · ")),
+        h("span", { class: "rr num" }, `${money(num(i.cash) ?? 0, false)} → ${money(num(i.payout), false)}` + (num(i.ev) != null ? ` · EV ${money(num(i.ev))}` : "")));
+    });
+
+    // Live-hedge triggers.
+    let anyHit = false;
+    const trigs = (plan.triggers || []).map((t) => {
+      const g = findGame(t);
+      const home = t.our_side === "home";
+      const ours = home ? t.home : t.away, theirs = home ? t.away : t.home;
+      const wp = g && g.state === "in" && g.wp != null ? (home ? g.wp : 1 - g.wp) : null;
+      const at = num(t.live_p) ?? 0.85, hit = wp != null && wp >= at && wp < 0.995;
+      anyHit = anyHit || hit;
+      const H = hedgeAt(t, hit ? wp : at);
+      const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (ESPN)` : "";
+      const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
+        : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
+      return h("div", { class: "trig" + (hit ? " hit" : "") },
+        h("span", { class: "tt num" }, (hit ? "⚠ " : "") + title),
+        h("span", { class: "td num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · `,
+          `if ${theirs} wins: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}`));
+    });
+    if (anyHit) document.title = "⚠ Live Bets";
+
+    card.replaceChildren(
+      h("div", {}, h("h2", {}, "Plan"), h("p", { class: "sub" }, head.join(" · ") + (plan.summary ? " · " + plan.summary : ""))),
+      h("span", { class: "plannums num" }, nums),
+      h("div", {}, ...rows),
+      trigs.length ? h("div", {}, h("h2", { style: "font-size:14.5px;margin:6px 0 2px" }, "Live hedges"), ...trigs,
+        h("p", { class: "sub", style: "margin-top:6px" }, "ESPN's win % is an estimate. Check the real price at Novig or Kalshi first; the stake scales with it. Hedging at a fair price costs almost nothing in EV. It trades upside for certainty.")) : null);
   }
 
   function renderSettled(P, settled) {
