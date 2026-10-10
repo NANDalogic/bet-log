@@ -127,6 +127,21 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
 .pbar[aria-expanded="true"] .chev{transform:translateY(2px) rotate(-135deg)}
 #promoBody:not([hidden]){display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:10px}
 .promo .pe{grid-column:1/-1;font-size:12.5px;color:var(--muted);overflow-wrap:anywhere}
+.dhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.drange{font-size:13.5px;color:var(--ink-2);flex:1 1 auto}
+.drange b{color:var(--ink);font-weight:650}
+.dual{position:relative;height:32px;margin-inline:2px}
+.dtrack{position:absolute;left:11px;right:11px;top:14px;height:4px;border-radius:2px;background:var(--chip)}
+.dfill{position:absolute;top:0;bottom:0;border-radius:2px;background:var(--ink)}
+.dual input{position:absolute;inset:0;width:100%;height:32px;margin:0;background:none;pointer-events:none;-webkit-appearance:none;appearance:none}
+.dual input::-webkit-slider-runnable-track{background:none;height:32px}
+.dual input::-webkit-slider-thumb{-webkit-appearance:none;pointer-events:auto;width:22px;height:22px;margin-top:5px;border-radius:50%;background:var(--surface);border:2px solid var(--ink);cursor:grab}
+.dual input::-moz-range-track{background:none}
+.dual input::-moz-range-thumb{pointer-events:auto;width:18px;height:18px;border-radius:50%;background:var(--surface);border:2px solid var(--ink);cursor:grab}
+.dual input:focus-visible::-webkit-slider-thumb{outline:2px solid var(--s1);outline-offset:2px}
+.dual input:focus-visible::-moz-range-thumb{outline:2px solid var(--s1);outline-offset:2px}
+.dual input:disabled::-webkit-slider-thumb{opacity:.4;cursor:default}
+.dends{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
 .promo .pe b{font-weight:600}
 .pill.warn{background:transparent;border:1px solid var(--warn);color:var(--warn)}
 .next{font-size:13px;color:var(--ink-2);border-top:1px solid var(--line);padding-top:10px}
@@ -180,6 +195,20 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     </div>
   </section>
 
+  <section class="card" id="dateCard" aria-label="Date range for settled bets">
+    <div class="dhead">
+      <span class="ptitle">Dates</span>
+      <span class="drange num" id="dateLabel">Loading…</span>
+      <button type="button" class="link" id="dateReset" hidden>All dates</button>
+    </div>
+    <div class="dual">
+      <div class="dtrack"><div class="dfill" id="dateFill"></div></div>
+      <input type="range" id="dateFrom" min="0" max="0" step="1" value="0" aria-label="Start date" disabled>
+      <input type="range" id="dateTo" min="0" max="0" step="1" value="0" aria-label="End date" disabled>
+    </div>
+    <div class="dends"><span id="dateMin"></span><span id="dateMax"></span></div>
+  </section>
+
   <section class="card">
     <div class="chead">
       <div><h2>Cumulative P/L</h2><p class="sub">Settled bets only, by settle date</p></div>
@@ -223,7 +252,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
 
   const state = {
     bets: [], loaded: false,
-    range: "all",
+    range: "all", from: null, to: null,   // range: all | 30 | 7 | week | custom (from/to = UTC day ms, inclusive)
     f: { league: new Set(), promo: new Set(), verdict: new Set(), book: new Set() },
     split: "league", step: "day", shown: 20,
   };
@@ -299,13 +328,18 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   }
 
   // ---------- filtering ----------
-  function inRange(b) {
-    if (state.range === "all") return true;
+  // Inclusive [start, end] calendar days for the current range; null = open-ended. Chips and the slider share this.
+  function rangeBounds() {
     const today = todayT();
-    if (state.range === "7") return b.t > today - 7 * DAY && b.t <= today;
-    if (state.range === "30") return b.t > today - 30 * DAY && b.t <= today;
-    if (state.range === "week") { const w = weekOf(today); return b.t >= w.start && b.t < w.start + 7 * DAY; }
-    return true;
+    if (state.range === "custom") return [state.from, state.to];
+    if (state.range === "30") return [today - 29 * DAY, today];
+    if (state.range === "7") return [today - 6 * DAY, today];
+    if (state.range === "week") { const w = weekOf(today); return [w.start, w.start + 6 * DAY]; }
+    return [null, null];
+  }
+  function inRange(b) {
+    const [a, z] = rangeBounds();
+    return (a == null || b.t >= a) && (z == null || b.t <= z);
   }
   function passDims(b, skip) {
     for (const k of ["league", "promo", "verdict", "book"]) {
@@ -390,6 +424,9 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
 
     const keyOf = state.step === "week" ? (b) => b.week.start : (b) => b.t;
     const xs = [...new Set(rows.map(keyOf))].sort((a, b) => a - b);
+    // $0 starting point just before the range (or the first bet, for All time), so the line starts at zero.
+    const startDay = rangeBounds()[0] ?? rows[0].t;
+    xs.unshift(state.step === "week" ? weekOf(startDay).start - 7 * DAY : startDay - DAY);
     const idx = new Map(xs.map((x, i) => [x, i]));
     let series;
     if (state.split === "league") {
@@ -425,7 +462,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     const labIdx = nLab <= 1 ? [0] : [...new Set(Array.from({ length: nLab }, (_, k) => Math.round((k * (xs.length - 1)) / (nLab - 1))))];
     for (const i of labIdx) {
       const tx = s("text", { x: X(i), y: H - 6, "text-anchor": i === 0 && xs.length > 1 ? "start" : i === xs.length - 1 && xs.length > 1 ? "end" : "middle" });
-      tx.textContent = state.step === "week" ? "Wk " + weekOf(xs[i]).w : fmtDate(xs[i]);
+      tx.textContent = i === 0 ? "Start" : state.step === "week" ? "Wk " + weekOf(xs[i]).w : fmtDate(xs[i]);
       svg.append(tx);
     }
     for (const sr of series) {
@@ -447,13 +484,13 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
       const x = X(i);
       cross.setAttribute("x1", x); cross.setAttribute("x2", x); cross.setAttribute("visibility", "visible");
       series.forEach((sr, k) => { dots[k].setAttribute("cx", x); dots[k].setAttribute("cy", Y(sr.vals[i])); dots[k].setAttribute("visibility", "visible"); });
-      const head = state.step === "week" ? `Week ${weekOf(xs[i]).w} · ${fmtDate(xs[i])}–${fmtDate(xs[i] + 6 * DAY)}` : fmtDate(xs[i], { weekday: "short", month: "short", day: "numeric" });
+      const head = i === 0 ? `Start of ${fmtDate(state.step === "week" ? weekOf(startDay).start : startDay)}` : state.step === "week" ? `Week ${weekOf(xs[i]).w} · ${fmtDate(xs[i])}–${fmtDate(xs[i] + 6 * DAY)}` : fmtDate(xs[i], { weekday: "short", month: "short", day: "numeric" });
       const nBets = series.reduce((a, sr) => a + sr.n[i], 0), dayPL = r2(series.reduce((a, sr) => a + sr.delta[i], 0));
       const ordered = [...series].sort((a, b) => b.vals[i] - a.vals[i]);
       tip.replaceChildren(
         h("div", { class: "th" }, head),
         ...ordered.map((sr) => h("div", { class: "tr" }, h("span", {}, h("i", { class: "key", style: `background:var(${sr.color})` }), sr.name), h("b", { class: "num " + cls(sr.vals[i]) }, money(sr.vals[i])))),
-        h("div", { class: "th", style: "margin:6px 0 0" }, `${nBets} bet${nBets === 1 ? "" : "s"} settled · ${money(dayPL)} ${state.step === "week" ? "this week" : "that day"}`),
+        h("div", { class: "th", style: "margin:6px 0 0" }, i === 0 ? "Cumulative P/L starts at $0 here" : `${nBets} bet${nBets === 1 ? "" : "s"} settled · ${money(dayPL)} ${state.step === "week" ? "this week" : "that day"}`),
       );
       tip.hidden = false;
       const bw = box.clientWidth, tw = tip.offsetWidth, px = (x / W) * bw;
@@ -555,8 +592,55 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     more.textContent = `Show more (${settled.length - state.shown} left)`;
   }
 
+  // ---------- date slider ----------
+  // Domain: first settled bet's day → today (or the last settled day if later). One step = one calendar day.
+  function dateDomain() {
+    const ts = state.bets.filter((b) => b.settled).map((b) => b.t);
+    const today = todayT();
+    if (!ts.length) return [today, today];
+    return [Math.min(...ts), Math.max(today, ...ts)];
+  }
+  const clamp = (v, a, z) => Math.min(z, Math.max(a, v));
+  function renderDates() {
+    const fromEl = $("#dateFrom"), toEl = $("#dateTo");
+    const [d0, d1] = dateDomain();
+    const n = Math.round((d1 - d0) / DAY);
+    let [a, z] = rangeBounds();
+    a = clamp(a == null ? d0 : a, d0, d1); z = clamp(z == null ? d1 : z, d0, d1);
+    const ia = Math.round((a - d0) / DAY), iz = Math.round((z - d0) / DAY);
+    for (const el of [fromEl, toEl]) { el.max = String(n); el.disabled = !state.loaded || n === 0; }
+    fromEl.value = String(ia); toEl.value = String(iz);
+    fromEl.setAttribute("aria-valuetext", fmtDate(a, { month: "long", day: "numeric", year: "numeric" }));
+    toEl.setAttribute("aria-valuetext", fmtDate(z, { month: "long", day: "numeric", year: "numeric" }));
+    fromEl.style.zIndex = ia === n ? "3" : "1";   // both thumbs at the right end: keep the start thumb grabbable
+    const f = (i) => (n ? i / n : 0);
+    $("#dateFill").style.left = (f(ia) * 100) + "%";
+    $("#dateFill").style.right = ((1 - f(iz)) * 100) + "%";
+    const days = iz - ia + 1;
+    const full = ia === 0 && iz === n;
+    $("#dateLabel").replaceChildren(
+      full ? h("b", {}, "All dates") : h("b", {}, a === z ? fmtDate(a) : `${fmtDate(a)} – ${fmtDate(z)}`),
+      ` · ${days} day${days === 1 ? "" : "s"}`);
+    $("#dateReset").hidden = full;
+    $("#dateMin").textContent = fmtDate(d0, { month: "short", day: "numeric", year: "numeric" });
+    $("#dateMax").textContent = fmtDate(d1, { month: "short", day: "numeric", year: "numeric" });
+  }
+  let dateTimer = 0;
+  function onSlide(which) {
+    const fromEl = $("#dateFrom"), toEl = $("#dateTo");
+    let ia = Number(fromEl.value), iz = Number(toEl.value);
+    if (ia > iz) { if (which === "from") iz = ia; else ia = iz; }   // handles can meet but not cross
+    const [d0] = dateDomain();
+    state.range = "custom"; state.from = d0 + ia * DAY; state.to = d0 + iz * DAY; state.shown = 20;
+    clearTimeout(dateTimer);
+    dateTimer = setTimeout(renderAll, 16);   // coalesce rapid drags into one redraw
+  }
+  $("#dateFrom").addEventListener("input", () => onSlide("from"));
+  $("#dateTo").addEventListener("input", () => onSlide("to"));
+  $("#dateReset").addEventListener("click", () => { state.range = "all"; state.shown = 20; renderAll(); });
+
   function renderAll() {
-    renderFilters(); renderKpis(); renderLine(); renderPromos();
+    renderFilters(); renderDates(); renderKpis(); renderLine(); renderPromos();
     renderBars("promo", PROMOS); renderBars("verdict", VERDICTS); renderBars("league", LEAGUES); renderBars("book", BOOKS);
     renderLists();
   }
