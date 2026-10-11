@@ -547,6 +547,14 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
   // Minutes since the stalest league's last Odds API pull (Infinity if one was never pulled). Drives auto-refresh.
   const LINES_ON_OPEN_MIN = 10, LINES_AUTO_MIN = 30;
+  // The 30-min background refresh runs only 11:45 AM–10:45 PM Central; outside it, use the button (or reopen the page).
+  const AUTO_FROM = 11 * 60 + 45, AUTO_TO = 22 * 60 + 45;
+  function inAutoWindow() {
+    const [hh, mm] = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "numeric", hourCycle: "h23" })
+      .format(new Date()).split(":").map(Number);
+    const m = hh * 60 + mm;
+    return m >= AUTO_FROM && m <= AUTO_TO;
+  }
   function linesAgeMin() {
     const d = st.linesInfo;
     if (!d || d.none || st.linesErr) return d && d.none ? 0 : Infinity;
@@ -935,7 +943,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       if (document.hidden) return;
       tick++;
       const live = [...st.games.values()].some((g) => g.state === "in");
-      if (live || tick % 4 === 0) refresh(tick % 2 === 0, LINES_AUTO_MIN);   // ESPN every 30s while games are live (bets every 60s), else every 2 min; lines every 30 min
+      if (live || tick % 4 === 0) refresh(tick % 2 === 0, inAutoWindow() ? LINES_AUTO_MIN : null);   // ESPN every 30s while games are live (bets every 60s), else every 2 min; lines every 30 min
     }, 30000);
     document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true, LINES_ON_OPEN_MIN); });
   }
