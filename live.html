@@ -545,6 +545,16 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     if (!r.ok || d.error) throw new Error(d.error || "HTTP " + r.status);
     st.lines = d.rows || []; st.linesInfo = d;
   }
+  // Minutes since the stalest league's last Odds API pull (Infinity if one was never pulled). Drives auto-refresh.
+  const LINES_ON_OPEN_MIN = 10, LINES_AUTO_MIN = 30;
+  function linesAgeMin() {
+    const d = st.linesInfo;
+    if (!d || d.none || st.linesErr) return d && d.none ? 0 : Infinity;
+    const leagues = Object.entries(d.skipped || {}).filter(([, why]) => !/no open bets|no ODDS_API_KEY|weekly cap/.test(why)).map(([lg]) => lg)
+      .concat((d.fetched || []).map((f) => f.league));
+    if (!leagues.length) return 0;
+    return Math.max(...leagues.map((lg) => d.last_fetch?.[lg] ? (Date.now() - Date.parse(d.last_fetch[lg])) / 60000 : Infinity));
+  }
 
   // ---------- build model positions ----------
   function gameLine(g, legsOnGame) {
@@ -877,7 +887,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     btn.hidden = false;
     const parts = Object.entries(d.last_fetch || {}).map(([lg, t]) => `${lg} ${new Date(t).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}`);
     const note = Object.entries(d.skipped || {}).filter(([, why]) => /cap|failed|wait/.test(why)).map(([lg, why]) => `${lg}: ${why}`);
-    el.textContent = "Game lines from " + (parts.join(", ") || "none yet") + (note.length ? " · " + note.join("; ") : "");
+    const wk = d.week ? ` · week ${d.week.week_spent.toLocaleString()} / ${d.week.week_cap.toLocaleString()} credits` : "";
+    el.textContent = "Game lines from " + (parts.join(", ") || "none yet") + wk + (note.length ? " · " + note.join("; ") : "");
   }
 
   // ---------- status ----------
@@ -886,12 +897,14 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
   // ---------- loop ----------
   let busy = false;
-  async function refresh(full) {
+  // linesMax: pull fresh Odds API lines if the cached ones are older than this many minutes (null = cache only).
+  async function refresh(full, linesMax = null) {
     if (busy) return; busy = true;
     try {
       if (full || !st.loaded) await loadBets();
       await loadGames();
       if (full || !st.linesInfo) { try { await loadLines(false); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
+      if (linesMax != null && !REPLAY && linesAgeMin() >= linesMax) { try { await loadLines(true); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
       await loadSummaries();
       st.loaded = true; st.lastAt = Date.now();
       const live = [...st.games.values()].some((g) => g.state === "in");
@@ -915,16 +928,16 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   });
   let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(render, 150); });
 
-  refresh(true);
+  refresh(true, LINES_ON_OPEN_MIN);   // opening the page = you're looking: lines no older than 10 min
   if (!REPLAY) {
     let tick = 0;
     setInterval(() => {
       if (document.hidden) return;
       tick++;
       const live = [...st.games.values()].some((g) => g.state === "in");
-      if (live || tick % 4 === 0) refresh(tick % 2 === 0);   // ESPN every 30s while games are live (bets every 60s), else every 2 min
+      if (live || tick % 4 === 0) refresh(tick % 2 === 0, LINES_AUTO_MIN);   // ESPN every 30s while games are live (bets every 60s), else every 2 min; lines every 30 min
     }, 30000);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true, LINES_ON_OPEN_MIN); });
   }
 })();
 </script>
