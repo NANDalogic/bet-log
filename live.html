@@ -121,7 +121,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 </style></head><body>
 <div class="wrap">
   <header>
-    <div><p class="eyebrow">Sports Bets · <a href="index.html">History</a> · Live</p><h1>Live bets</h1></div>
+    <div><p class="eyebrow">Sports Bets · <a href="index.html">History</a> · Live · <a href="plan.html">Plan</a></p><h1>Live bets</h1></div>
     <div class="fresh"><span class="dot" id="dot"></span><span id="freshText">Loading…</span></div>
   </header>
   <div class="bar">
@@ -262,7 +262,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   // Unplaced items whose games haven't started, shaped like bet rows so build() can simulate them.
   function unplacedAsBets(cp) {
     const ids = betIds();
-    return (cp ? cp.items : []).filter((i) => itemState(i, ids) === "open" && (i.legs || []).length).map((i) => ({
+    return (cp ? cp.items : []).filter((i) => i.alt_of_ord == null && itemState(i, ids) === "open" && (i.legs || []).length).map((i) => ({
       id: "plan:" + i.id, bet: i.label, settle_date: cp.plan.plan_date, result: "Pending", legs: i.legs, book: i.book,
       cash_risked: num(i.cash) ?? 0, stake: num(i.cash) ?? 0, to_pay: i.payout, refund_on_loss: i.refund_on_loss }));
   }
@@ -729,18 +729,12 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     }
     nums += ` (chance to finish ${word} ${line ? "above " + money(line, false) : "in the black"})`;
 
-    const rows = items.map((i) => {
-      const stt = itemState(i, ids);
-      const g = (i.legs || []).map(findGame).find(Boolean);
-      const pill = stt === "placed" ? h("span", { class: "pill won" }, "✓ Placed")
-        : stt === "skipped" ? h("span", { class: "pill" }, "Skipped")
-        : stt === "missed" ? h("span", { class: "pill warn" }, "Started · not placed")
-        : h("span", { class: "pill" }, g ? new Date(g.date).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }) : "Not placed");
-      return h("div", { class: "row" + (stt === "skipped" ? " skip" : "") },
-        h("span", { class: "rt" }, i.label), pill,
-        h("span", { class: "rm" }, [i.book, i.slip, i.is_hedge ? "hedge" : null, num(i.cash) === 0 ? "bonus bet" : null].filter(Boolean).join(" · ")),
-        h("span", { class: "rr num" }, `${money(num(i.cash) ?? 0, false)} → ${money(num(i.payout), false)}` + (num(i.ev) != null ? ` · EV ${money(num(i.ev))}` : "")));
-    });
+    // The item list lives on plan.html now; here just the count and a link.
+    const states = items.filter((i) => i.alt_of_ord == null).map((i) => itemState(i, ids));
+    const live = states.filter((x) => x !== "skipped").length, placed = states.filter((x) => x === "placed").length;
+    const open = states.filter((x) => x === "open").length;
+    const rows = [h("div", { class: "row" }, h("span", { class: "rt" }, `${placed} of ${live} placed` + (open ? ` · ${open} still to place` : "")),
+      h("a", { class: "pill", href: "plan.html" + (plan.plan_date === isoT(localToday()) ? "" : "?date=" + plan.plan_date), style: "text-decoration:none;color:var(--s1)" }, "Open plan →"))];
 
     // Live-hedge triggers.
     let anyHit = false;

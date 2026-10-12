@@ -1,0 +1,733 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bet Plan</title>
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+/* Layout: phone-first single column. Header → day tabs + past-week picker → sticky totals → plan notes → one collapsible card per book → promo sweep → footer. */
+:root{
+  --page:#f4f4f1; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#7d7b75;
+  --grid:#e6e5df; --axis:#c3c2b7; --line:rgba(11,11,11,.10); --chip:#ecebe6;
+  --good:#0a7d0a; --good-mark:#0ca30c; --bad:#c23434; --bad-mark:#d03b3b; --warn:#9a6a00; --warn-mark:#e0a82e; --s1:#2a78d6;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --page:#0f0f0e; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#97958e;
+  --grid:#2c2c2a; --axis:#45453f; --line:rgba(255,255,255,.10); --chip:#262624;
+  --good:#3ac23a; --good-mark:#0ca30c; --bad:#f07070; --bad-mark:#d03b3b; --warn:#e0a82e; --warn-mark:#e0a82e; --s1:#3987e5;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --page:#0f0f0e; --surface:#1a1a19; --ink:#ffffff; --ink-2:#c3c2b7; --muted:#97958e;
+  --grid:#2c2c2a; --axis:#45453f; --line:rgba(255,255,255,.10); --chip:#262624;
+  --good:#3ac23a; --good-mark:#0ca30c; --bad:#f07070; --bad-mark:#d03b3b; --warn:#e0a82e; --warn-mark:#e0a82e; --s1:#3987e5;
+  color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45;
+  padding:max(12px,env(safe-area-inset-top)) 16px max(40px,env(safe-area-inset-bottom))}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+button,input,select{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+.pos{color:var(--good)} .neg{color:var(--bad)}
+
+header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
+.eyebrow a{color:var(--s1);text-decoration:none}
+h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em}
+.fresh{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
+.dot.live{background:var(--good-mark)} .dot.stale{background:var(--warn)} .dot.err{background:var(--bad-mark)}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;min-height:34px}
+.btn:hover{background:var(--chip)} .btn:disabled{opacity:.5;cursor:default}
+.btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink);font-weight:600}
+.link{border:0;background:none;padding:0;color:var(--s1);font-size:13px;cursor:pointer}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.card h2{font-size:16px;margin:0}
+.sub{font-size:12.5px;color:var(--muted);margin:0}
+.empty{color:var(--muted);font-size:14px;padding:14px 4px;text-align:center}
+.skel{height:14px;border-radius:6px;background:var(--chip)}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--ink-2);font-weight:600;white-space:nowrap}
+.pill.won{background:transparent;border:1px solid var(--good-mark);color:var(--good)}
+.pill.red{background:var(--bad-mark);color:#fff}
+.pill.yellow{background:var(--warn-mark);color:#1a1300}
+.pill.warn{background:transparent;border:1px solid var(--warn);color:var(--warn)}
+.pill.new{background:var(--s1);color:#fff}
+
+/* Week: day tabs + past weeks */
+.weekbar{display:flex;flex-direction:column;gap:8px}
+.weekbar .top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.weekbar select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 8px;font-size:13.5px;min-height:34px;max-width:60%}
+.days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface)}
+.days button{border:0;border-left:1px solid var(--line);background:transparent;padding:6px 0 7px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:1px;min-height:52px;position:relative}
+.days button:first-child{border-left:0}
+.days .dw{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.days .dd{font-size:16px;font-weight:650}
+.days .dp{width:6px;height:6px;border-radius:50%;background:transparent}
+.days button.has .dp{background:var(--s1)}
+.days button.today .dd{text-decoration:underline;text-underline-offset:3px}
+.days button[aria-pressed="true"]{background:var(--ink)}
+.days button[aria-pressed="true"] .dw,.days button[aria-pressed="true"] .dd{color:var(--surface)}
+.days button[aria-pressed="true"].has .dp{background:var(--surface)}
+
+/* Sticky running totals */
+.totals{position:sticky;top:0;z-index:5;margin:0 -16px;padding:8px 16px;background:color-mix(in srgb,var(--page) 92%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+.totals .tg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.totals .t{display:flex;flex-direction:column;min-width:0}
+.totals .k{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.totals .v{font-size:18px;font-weight:700;line-height:1.2;white-space:nowrap}
+.totals .s{font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.totals .more{font-size:12.5px;color:var(--ink-2);margin-top:3px}
+
+/* Book cards */
+.books{display:flex;flex-direction:column;gap:10px}
+details.book{background:var(--surface);border:1px solid var(--line);border-radius:12px;min-width:0}
+details.book>summary{list-style:none;cursor:pointer;padding:12px 14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+details.book>summary::-webkit-details-marker{display:none}
+details.book>summary::before{content:"▸";color:var(--muted);font-size:13px;transition:transform .15s}
+details.book[open]>summary::before{transform:rotate(90deg)}
+.bk{font-weight:700;font-size:16px}
+.bn{font-size:14px;color:var(--ink-2)}
+.bev{margin-left:auto;font-weight:700;font-size:15px}
+.bflags{display:flex;gap:6px;flex-basis:100%;padding-left:18px}
+.bflags:empty{display:none}
+details.book.done{opacity:.72}
+.items{padding:0 14px 6px}
+.item{display:grid;grid-template-columns:30px minmax(0,1fr);gap:0 8px;padding:10px 0;border-top:1px solid var(--line);position:relative}
+.item.exp-red{box-shadow:inset 3px 0 0 var(--bad-mark);padding-left:8px;margin-left:-8px;background:color-mix(in srgb,var(--bad-mark) 8%,transparent)}
+.item.exp-yellow{box-shadow:inset 3px 0 0 var(--warn-mark);padding-left:8px;margin-left:-8px;background:color-mix(in srgb,var(--warn-mark) 9%,transparent)}
+.item.placed .il,.item.skipped .il{color:var(--muted)}
+.item.skipped .il{text-decoration:line-through}
+.item.alt{border-top:1px dashed var(--line)}
+.cb{width:24px;height:24px;margin:1px 0 0;accent-color:var(--good-mark);cursor:pointer}
+.ib{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ih{display:flex;gap:8px;align-items:baseline;justify-content:space-between}
+.il{font-weight:600;font-size:15px;min-width:0;overflow-wrap:anywhere}
+.iev{font-weight:700;white-space:nowrap}
+.islip{font-size:13px;color:var(--ink-2);overflow-wrap:anywhere}
+.imeta{font-size:12.5px;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.iact{display:flex;gap:14px;flex-wrap:wrap;margin-top:2px}
+.alts{grid-column:2;display:flex;flex-direction:column;margin-top:4px;padding-left:10px;border-left:2px solid var(--line)}
+.alts .item{grid-template-columns:30px minmax(0,1fr)}
+
+.notes{font-size:13.5px;color:var(--ink-2)}
+.notes summary{cursor:pointer;font-weight:600;color:var(--ink)}
+.sweep .sw{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:9px 0;border-top:1px solid var(--line);align-items:center}
+.sweep .sw:first-child{border-top:0}
+.sweep .sn{font-weight:600}
+.sweep .sm{font-size:12.5px;color:var(--muted);grid-column:1}
+.sweep .sb{grid-row:1/span 2;grid-column:2;display:flex;gap:6px}
+.sweep summary{cursor:pointer;font-weight:600;font-size:15px}
+.foot{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:6px}
+
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:16px;width:min(420px,calc(100vw - 32px));max-height:calc(100vh - 40px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+dialog h3{margin:0 0 4px;font-size:17px}
+dialog form{display:flex;flex-direction:column;gap:12px}
+.fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fields label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
+.fields input,.pinrow input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:17px;background:var(--page);min-width:0;width:100%}
+.oddsrow{display:flex;gap:6px}
+.oddsrow .btn{flex:none;min-width:40px;font-size:16px}
+.preview{font-size:14px;color:var(--ink-2)}
+.warnbox{font-size:13px;color:var(--bad);font-weight:600}
+.drow{display:flex;justify-content:flex-end;gap:8px}
+.toast{position:fixed;left:50%;bottom:max(16px,env(safe-area-inset-bottom));transform:translateX(-50%);background:var(--ink);color:var(--surface);border-radius:10px;padding:10px 14px;font-size:14px;display:flex;gap:14px;align-items:center;z-index:20;max-width:calc(100vw - 32px);box-shadow:0 4px 18px rgba(0,0,0,.25)}
+.toast button{border:0;background:none;color:var(--surface);font-weight:700;text-decoration:underline;cursor:pointer;padding:0}
+</style></head><body>
+<div class="wrap">
+  <header>
+    <div><p class="eyebrow">Sports Bets · <a href="index.html">History</a> · <a href="live.html">Live</a> · Plan</p><h1>Bet plan</h1></div>
+    <div class="fresh"><span class="dot" id="dot"></span><span id="freshText">Loading…</span></div>
+  </header>
+  <div class="weekbar">
+    <div class="top"><span class="sub num" id="weekLabel"></span><select id="weekPick" aria-label="Pick a week"></select></div>
+    <div class="days" id="days" role="group" aria-label="Day"></div>
+  </div>
+  <div class="totals num" id="totals" hidden></div>
+  <section class="card notes" id="planNotes" hidden></section>
+  <div class="books" id="books"><div class="card"><div class="skel" style="width:70%"></div><div class="skel" style="width:45%"></div></div></div>
+  <section class="card sweep" id="sweepCard" hidden></section>
+  <div class="foot">
+    <span>Ticking a box logs the bet straight to your bet log (no screenshot needed) with the odds and stake you confirm. Undo works for 10 minutes; after that, ask Claude. Still send Claude the slip before you submit when you want a check. Revised plans show up here within a minute.</span>
+    <span>Red = promo expires today · yellow = expires before this betting week ends (Monday night).</span>
+  </div>
+</div>
+
+<dialog id="placeDlg"><form method="dialog" id="placeForm">
+  <div><h3 id="pdTitle"></h3><p class="sub" id="pdSlip"></p></div>
+  <div class="fields">
+    <label>Odds (American)<div class="oddsrow"><button type="button" class="btn" id="pdSign" aria-label="Flip sign">±</button><input id="pdOdds" inputmode="numeric" autocomplete="off"></div></label>
+    <label>Stake ($)<input id="pdStake" inputmode="decimal" autocomplete="off"></label>
+  </div>
+  <div class="preview num" id="pdPreview"></div>
+  <div class="warnbox" id="pdWarn" hidden></div>
+  <div class="drow"><button type="button" class="btn" id="pdCancel">Cancel</button><button type="submit" class="btn primary" id="pdGo">Log bet</button></div>
+</form></dialog>
+
+<dialog id="pinDlg"><form method="dialog" id="pinForm">
+  <div><h3>Enter your plan PIN</h3><p class="sub" id="pinMsg">Asked once on this device, then remembered.</p></div>
+  <div class="pinrow"><input id="pinIn" type="password" autocomplete="current-password" inputmode="numeric"></div>
+  <div class="drow"><button type="button" class="btn" id="pinCancel">Cancel</button><button type="submit" class="btn primary">Unlock</button></div>
+</form></dialog>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="live-core.js"></script>
+<script>
+(() => {
+  const M = window.LiveModel;
+  const SB_URL = "https://pqkteawpnislalfxxtvc.supabase.co";
+  const SB_KEY = "sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG";
+  const PLAN_COLS = "id,created_at,plan_date,scope,target_p_black,target_on,withdrawn,banked_day,banked_week,p_black_day,p_black_week,ev,summary,triggers";
+  const COLS = "id,bet,game,settle_date,league,promo,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct,fair_win_pct,ev,to_pay,refund_on_loss,legs";
+  const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev";
+  const DAY = 86400000, UNDO_MS = 10 * 60000, POLL_MS = 60000;
+  const ESPN = LiveCore.ESPN, FOOTBALL = LiveCore.FOOTBALL;
+  const WEEK_ANCHORS = LiveCore.WEEK_ANCHORS.map(toT);
+  // Promo sweep: each book's promos page (on iPhone these open the app when it's installed). Novig has no web promos page.
+  const BOOKS = [
+    ["DraftKings", "https://sportsbook.draftkings.com/promos"],
+    ["FanDuel", "https://sportsbook.fanduel.com/promos"],
+    ["Fanatics", "https://sportsbook.fanatics.com/"],
+    ["Caesars", "https://sportsbook.caesars.com/"],
+    ["bet365", "https://www.bet365.com/"],
+    ["Novig", null],
+    ["Kalshi", "https://kalshi.com/"],
+  ];
+
+  const $ = (s) => document.querySelector(s);
+  function h(tag, attrs, ...kids) {
+    const el = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) {
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v; else if (k === "style") el.setAttribute("style", v);
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v); else el.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : document.createTextNode(String(c)));
+    return el;
+  }
+  function toT(d) { const [y, m, dd] = d.split("-").map(Number); return Date.UTC(y, m - 1, dd); }
+  const isoT = (t) => new Date(t).toISOString().slice(0, 10);
+  function dayOf(t) { const d = new Date(t); return Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()); }
+  const localToday = () => dayOf(Date.now());
+  const num = LiveCore.num;
+  function money(n, signed = true) {
+    if (n == null || !Number.isFinite(n)) return "—";
+    const a = Math.abs(n).toLocaleString("en-US", { minimumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2, maximumFractionDigits: Math.abs(n) >= 1000 ? 0 : 2 });
+    if (!signed) return "$" + a;
+    return (n > 0.004 ? "+$" : n < -0.004 ? "−$" : "$") + a;
+  }
+  const money0 = (n) => n == null || !Number.isFinite(n) ? "—" : (n > 0.5 ? "+$" : n < -0.5 ? "−$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-US");
+  const cls = (n) => (n > 0.004 ? "pos" : n < -0.004 ? "neg" : "");
+  const pctS = (p) => (p >= 0.995 && p < 1 ? ">99" : p > 0 && p <= 0.005 ? "<1" : String(Math.round(p * 100))) + "%";
+  function pctFine(p) {
+    if (p >= 0.995) return ">99%";
+    if (p >= 0.01) return Math.round(p * 100) + "%";
+    if (p >= 0.0001) return Number((p * 100).toPrecision(1)) + "%";
+    return p > 0 ? "<0.01%" : "0%";
+  }
+  const fmtDay = (t, o = { weekday: "short", month: "short", day: "numeric" }) => new Date(t).toLocaleDateString("en-US", { timeZone: "UTC", ...o });
+  const fmtWhen = (iso) => new Date(iso).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
+  const amer = (o) => o == null ? "" : (o > 0 ? "+" : "") + o;
+  const decOf = (o) => o > 0 ? 1 + o / 100 : 1 + 100 / -o;
+  // Central-time calendar date of an instant, as YYYY-MM-DD (promo expiry colors follow the books' Central deadlines).
+  const ctDate = (t) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(t));
+  function weekOf(t) {
+    let a = WEEK_ANCHORS[0];
+    for (const x of WEEK_ANCHORS) if (x <= t) a = x;
+    const w = Math.floor((t - a) / (7 * DAY)) + 1;
+    return { w, start: a + (w - 1) * 7 * DAY };
+  }
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+    del(k) { try { localStorage.removeItem(k); } catch {} },
+  };
+
+  // ---------- state ----------
+  const params = new URLSearchParams(location.search);
+  const st = { planDates: [], plans: [], items: [], promos: new Map(), avail: [], bets: [], sweeps: [], games: new Map(), lines: [], summaries: new Map(),
+    loaded: false, err: null, lastAt: null, newKeys: new Set(), altOpen: new Set(), busy: new Set() };
+  const C = LiveCore.make(st, null), { findGame } = C;
+  let selDay = /^\d{4}-\d\d-\d\d$/.test(params.get("date") || "") ? toT(params.get("date")) : localToday();
+  let selWeek = weekOf(selDay).start;
+
+  async function sb(path) {
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+    if (!r.ok) throw new Error("database HTTP " + r.status);
+    return r.json();
+  }
+  async function rpc(fn, body) {
+    const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) return { ok: false, error: d.message || "HTTP " + r.status };
+    return d;
+  }
+  async function getJSON(url) { const r = await fetch(url, { cache: "no-store" }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }
+
+  // ---------- data ----------
+  async function loadAll() {
+    const ws = selWeek, we = selWeek + 6 * DAY;
+    const [dates, plans, sweeps] = await Promise.all([
+      sb(`plans?select=plan_date&status=eq.active&order=plan_date.desc&limit=1000`),
+      sb(`plans?select=${PLAN_COLS}&status=eq.active&plan_date=gte.${isoT(ws)}&plan_date=lte.${isoT(we)}&order=created_at.desc`),
+      sb(`promo_sweeps?select=book,swept_at&order=swept_at.desc&limit=300`).catch(() => []),
+    ]);
+    st.planDates = [...new Set(dates.map((x) => x.plan_date))];
+    st.plans = plans; st.sweeps = sweeps;
+    st.items = plans.length ? await sb(`plan_items?select=*&plan_id=in.(${plans.map((p) => p.id).join(",")})&order=ord`) : [];
+    const ids = [...new Set(st.items.map((i) => i.promo_id).filter(Boolean))];
+    const [promos, avail, bets] = await Promise.all([
+      ids.length ? sb(`promos?select=${PROMO_COLS}&id=in.(${ids.join(",")})`) : [],
+      sb(`promos?select=${PROMO_COLS}&status=eq.Available&order=expires_at&limit=1000`),
+      sb(`bets?select=${COLS}&settle_date=gte.${isoT(ws)}&settle_date=lte.${isoT(we)}&order=settle_date&limit=2000`),
+    ]);
+    st.promos = new Map([...avail, ...promos].map((p) => [p.id, p]));
+    st.avail = avail; st.bets = bets;
+    // Placed items can point at bets dated outside the week (futures, a later game): fetch those too.
+    const missing = st.items.filter((i) => i.bet_id && !bets.some((b) => b.id === i.bet_id)).map((i) => i.bet_id);
+    if (missing.length) st.extraBets = await sb(`bets?select=${COLS}&id=in.(${missing.join(",")})`); else st.extraBets = [];
+    trackNew();
+  }
+
+  // Legs on the selected day (bets settling that day + that day's plan items) → ESPN scoreboards, summaries, cached lines.
+  function dayLegs() {
+    const d = isoT(selDay), cp = currentPlan();
+    return [...st.bets.filter((b) => b.settle_date === d).flatMap((b) => b.legs || []), ...(cp ? cp.items.flatMap((i) => i.legs || []) : [])];
+  }
+  async function loadGames() {
+    const need = new Set();
+    for (const l of dayLegs()) if (ESPN[l.league] && l.date) need.add(l.league + "|" + l.date);
+    const results = await Promise.allSettled([...need].map(async (k) => {
+      const [league, date] = k.split("|");
+      const d = await getJSON(LiveCore.scoreboardUrl(league, date));
+      for (const e of d.events || []) { const g = LiveCore.parseEvent(e, league); g.day = date; st.games.set(g.id, { ...(st.games.get(g.id) || {}), ...g }); }
+    }));
+    st.espnErr = results.some((r) => r.status === "rejected");
+  }
+  async function loadSummaries() {
+    const want = new Map();
+    for (const l of dayLegs()) {
+      const g = findGame(l);
+      if (!g) continue;
+      if ((l.kind === "prop" || l.lead_by) && g.state !== "pre") want.set(g.id, g);
+      if (FOOTBALL.has(g.league) && !st.summaries.has(g.id) && !C.lineFor(g)) want.set(g.id, g);
+    }
+    await Promise.allSettled([...want.values()].map(async (g) => st.summaries.set(g.id, LiveCore.parseSummary(await getJSON(LiveCore.summaryUrl(g))))));
+  }
+  async function loadLines() {   // cached lines only; the Refresh lines button on live.html is the one that spends credits
+    const leagues = new Set(dayLegs().map((l) => l.league).filter((lg) => ESPN[lg]));
+    if (!leagues.size || selDay < localToday()) return;
+    try {
+      const r = await fetch(`${SB_URL}/functions/v1/live-lines?leagues=${[...leagues].join(",")}`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+      const d = await r.json();
+      if (r.ok && !d.error) st.lines = d.rows || [];
+    } catch {}
+  }
+
+  let inFlight = null;
+  async function refresh() {
+    if (inFlight) return inFlight;
+    inFlight = (async () => {
+      try {
+        await loadAll();
+        st.err = null; st.loaded = true; st.lastAt = Date.now();
+        render();   // plan list first; the model numbers fill in after ESPN
+        await loadGames(); await loadLines(); await loadSummaries();
+      } catch (e) { st.err = e.message || String(e); }
+      render();
+    })();
+    try { await inFlight; } finally { inFlight = null; }
+  }
+
+  // ---------- plan helpers ----------
+  function currentPlan() {
+    const d = isoT(selDay), pl = st.plans.find((p) => p.plan_date === d);
+    return pl ? { plan: pl, items: st.items.filter((i) => i.plan_id === pl.id) } : null;
+  }
+  const betById = (id) => st.bets.find((b) => b.id === id) || (st.extraBets || []).find((b) => b.id === id);
+  function itemState(i) {
+    if (i.status === "skipped") return "skipped";
+    if (i.status === "placed" || (i.bet_id && betById(i.bet_id))) return "placed";
+    const g = (i.legs || []).map(findGame).find(Boolean);
+    return g && g.state !== "pre" ? "missed" : "open";
+  }
+  function itemEV(i) { const b = i.bet_id && betById(i.bet_id); return num(b && b.ev) ?? num(i.ev) ?? 0; }
+  const itemKey = (i) => `${i.book}|${i.label}`;
+  // "New" marks: items not seen on this device before (per plan date), kept until the page reloads.
+  function trackNew() {
+    for (const p of st.plans) {
+      const k = "planSeen:" + p.plan_date, keys = st.items.filter((i) => i.plan_id === p.id).map(itemKey);
+      const seen = store.get(k, null);
+      if (seen) for (const x of keys) if (!seen.includes(x)) st.newKeys.add(p.plan_date + "|" + x);
+      store.set(k, [...new Set([...(seen || []), ...keys])].slice(-400));
+    }
+  }
+  function expiryOf(i) {
+    const p = i.promo_id && st.promos.get(i.promo_id);
+    if (!p || !p.expires_at) return null;
+    const t = Date.parse(p.expires_at), today = ctDate(Date.now()), wk = weekOf(localToday()), wEnd = isoT(wk.start + 6 * DAY);
+    const d = ctDate(t), when = new Date(t).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" });
+    if (t < Date.now()) return { level: "gone", text: "Promo expired" };
+    if (d <= today) return { level: "red", text: "Expires today " + new Date(t).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) };
+    if (d <= wEnd) return { level: "yellow", text: "Expires " + when };
+    return { level: null, text: "Expires " + new Date(t).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }) };
+  }
+  // Odds/stake fallbacks for plans saved before plan_items had odds/stake columns: read them off the label/slip.
+  function oddsOf(i) { if (num(i.odds) != null) return num(i.odds); const m = [...`${i.label} ${i.slip || ""}`.matchAll(/(?:^|[\s(≈])([+-]\d{3,5})\b/g)]; return m.length ? Number(m[0][1]) : null; }
+  function stakeOf(i) {
+    if (num(i.stake) != null) return num(i.stake);
+    if (num(i.cash)) return num(i.cash);
+    const m = `${i.slip || ""} ${i.label}`.match(/\$(\d+(?:\.\d+)?)/); return m ? Number(m[1]) : null;
+  }
+  function isBonus(i) { return (num(i.cash) ?? 0) === 0; }
+  function boostOf(i) { const p = i.promo_id && st.promos.get(i.promo_id); return p && /boost/i.test(p.type) && p.type !== "Odds boost" ? num(p.boost_pct) || 0 : 0; }
+  // Mirrors place_plan_item: payout/EV after odds or stake edits (display only; the database does the real math).
+  function quote(i, odds, stake) {
+    const oldStake = stakeOf(i), payout = num(i.payout), cashNew = isBonus(i) ? 0 : stake;
+    let pay = payout;
+    if (num(i.odds) != null && odds != null && odds !== num(i.odds)) pay = stake * (decOf(odds) - 1) * (1 + boostOf(i)) + (isBonus(i) ? 0 : stake);
+    else if (stake !== oldStake && oldStake > 0 && payout != null) pay = payout * stake / oldStake;
+    const ev = num(i.ev) == null ? null : num(i.ev) + (num(i.win_p) || 0) * ((pay ?? 0) - (payout ?? 0)) - (cashNew - (num(i.cash) || 0));
+    return { pay, ev };
+  }
+
+  // Groups: a main pick plus its alternates (alt_of_ord = the main's ord). The "active" pick is whichever got placed, else the main.
+  function groupsOf(items) {
+    const ords = new Set(items.map((i) => i.ord));
+    const mains = items.filter((i) => i.alt_of_ord == null || !ords.has(i.alt_of_ord));
+    return mains.map((m) => {
+      const alts = items.filter((i) => i !== m && i.alt_of_ord === m.ord).sort((a, b) => itemEV(b) - itemEV(a));
+      const all = [m, ...alts], placed = all.find((i) => itemState(i) === "placed");
+      const active = placed || m, state = placed ? "placed" : all.every((i) => itemState(i) === "skipped") ? "skipped" : itemState(m) === "skipped" ? (alts.some((a) => itemState(a) === "open") ? "open" : "skipped") : itemState(m);
+      return { main: m, alts, active, state };
+    });
+  }
+  function bookCards(cp) {
+    const byBook = new Map();
+    for (const g of groupsOf(cp.items)) { const b = g.main.book || "Other"; (byBook.get(b) || byBook.set(b, []).get(b)).push(g); }
+    const cards = [...byBook].map(([book, groups]) => {
+      const live = groups.filter((g) => g.state !== "skipped");
+      const done = groups.every((g) => g.state !== "open");
+      return { book, groups, done, count: live.length, ev: live.reduce((x, g) => x + itemEV(g.active), 0), top: Math.max(-1e9, ...live.map((g) => itemEV(g.active))) };
+    });
+    return cards.sort((a, b) => (a.done - b.done) || (b.top - a.top) || a.book.localeCompare(b.book));
+  }
+
+  // ---------- model: the selected day's bets (placed + banked), and with the unplaced picks ----------
+  function unplacedAsBets(cp) {
+    return groupsOf(cp ? cp.items : []).filter((g) => g.state === "open").map((g) => g.active.status === "skipped" ? g.alts.find((a) => itemState(a) === "open") : g.active)
+      .filter((i) => i && (i.legs || []).length && itemState(i) === "open").map((i) => ({
+        id: "plan:" + i.id, bet: i.label, settle_date: cp.plan.plan_date, result: "Pending", legs: i.legs, book: i.book,
+        cash_risked: num(i.cash) ?? 0, stake: stakeOf(i) ?? 0, to_pay: i.payout, refund_on_loss: i.refund_on_loss }));
+  }
+  function model(cp) {
+    const d = isoT(selDay), view = st.bets.filter((b) => b.settle_date === d);
+    const out = { n: view.length, pending: view.filter((b) => b.result === "Pending").length };
+    if (view.length) {
+      const P = C.positions(view), res = M.run({ games: P.games, bets: P.bets, n: 20000, seed: 7 });
+      out.S = M.summarize(res); out.E = M.extremes(res); out.fixed = res.fixed;
+    }
+    const extra = unplacedAsBets(cp);
+    if (extra.length) {
+      const P2 = C.positions(view.concat(extra)), r2 = M.run({ games: P2.games, bets: P2.bets, n: 20000, seed: 7 });
+      out.rest = { n: extra.length, S: M.summarize(r2) };
+    }
+    return out;
+  }
+
+  // ---------- render ----------
+  function render() {
+    renderFresh();
+    renderWeek();
+    if (!st.loaded) return;
+    const cp = currentPlan();
+    renderTotals(cp);
+    renderNotes(cp);
+    renderBooks(cp);
+    renderSweep();
+  }
+  function renderFresh() {
+    const dot = $("#dot"), t = $("#freshText");
+    dot.className = "dot " + (st.err ? "err" : st.espnErr ? "stale" : st.loaded ? "live" : "");
+    t.textContent = st.err ? (st.loaded ? "Couldn't refresh · showing last load" : "Couldn't load: " + st.err)
+      : st.loaded ? "Updated " + new Date(st.lastAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) + (st.espnErr ? " · ESPN partly down" : "") : "Loading…";
+  }
+  function renderWeek() {
+    const thisWeek = weekOf(localToday()).start, wk = weekOf(selWeek);
+    $("#weekLabel").textContent = `Week ${wk.w} · ${fmtDay(selWeek, { month: "short", day: "numeric" })}–${fmtDay(selWeek + 6 * DAY, { month: "short", day: "numeric" })}`;
+    const has = new Set(st.planDates), today = localToday();
+    $("#days").replaceChildren(...Array.from({ length: 7 }, (_, k) => {
+      const t = selWeek + k * DAY;
+      return h("button", { type: "button", class: [has.has(isoT(t)) ? "has" : "", t === today ? "today" : ""].join(" "), "aria-pressed": String(t === selDay),
+        "aria-label": fmtDay(t) + (has.has(isoT(t)) ? ", has a plan" : ""), onclick: () => pickDay(t) },
+        h("span", { class: "dw" }, fmtDay(t, { weekday: "short" })), h("span", { class: "dd num" }, fmtDay(t, { day: "numeric" })), h("span", { class: "dp" }));
+    }));
+    // Week picker: this week, then every earlier week that has a plan.
+    const weeks = new Map([[thisWeek, "This week"]]);
+    for (const d of st.planDates) { const w = weekOf(toT(d)); if (w.start < thisWeek && !weeks.has(w.start)) weeks.set(w.start, `Week ${w.w} · ${fmtDay(w.start, { month: "short", day: "numeric" })}–${fmtDay(w.start + 6 * DAY, { month: "short", day: "numeric" })}`); }
+    if (!weeks.has(selWeek)) weeks.set(selWeek, $("#weekLabel").textContent);
+    const sel = $("#weekPick");
+    sel.replaceChildren(...[...weeks].sort((a, b) => b[0] - a[0]).map(([t, label]) => h("option", { value: t, selected: t === selWeek }, t < thisWeek ? label : t > thisWeek ? "Next week" : label)));
+  }
+  function pickDay(t) {
+    selDay = t; selWeek = weekOf(t).start;
+    const u = new URL(location.href); if (t === localToday()) u.searchParams.delete("date"); else u.searchParams.set("date", isoT(t));
+    history.replaceState(null, "", u);
+    render(); refresh();
+  }
+  $("#weekPick").addEventListener("change", (e) => {
+    const ws = Number(e.target.value), thisWeek = weekOf(localToday()).start;
+    if (ws === thisWeek) return pickDay(localToday());
+    // A past week opens on its last day that has a plan.
+    const days = st.planDates.map(toT).filter((t) => t >= ws && t <= ws + 6 * DAY).sort((a, b) => b - a);
+    pickDay(days[0] ?? ws);
+  });
+
+  function stat(k, v, vcls, s) { return h("div", { class: "t" }, h("span", { class: "k" }, k), h("span", { class: "v " + (vcls || "") }, v), h("span", { class: "s" }, s || "")); }
+  function renderTotals(cp) {
+    const box = $("#totals");
+    const items = cp ? cp.items : [];
+    if (!cp && !st.bets.some((b) => b.settle_date === isoT(selDay))) { box.hidden = true; return; }
+    box.hidden = false;
+    const mo = model(cp);
+    const placedItems = items.filter((i) => itemState(i) === "placed");
+    const evPlaced = placedItems.reduce((x, i) => x + itemEV(i), 0);
+    const evPlan = groupsOf(items).filter((g) => g.state !== "skipped").reduce((x, g) => x + itemEV(g.active), 0);
+    const kids = [];
+    if (!mo.n) kids.push(stat("Chance in black", "—", "", "nothing placed"), stat("Best case", "—"), stat("Worst case", "—"));
+    else if (!mo.pending) kids.push(stat("Final P/L", money0(mo.fixed), cls(mo.fixed), `${mo.n} settled`), stat("Best case", "—"), stat("Worst case", "—"));
+    else kids.push(stat("Chance in black", pctS(mo.S.pBlack), "", `exp. ${money0(mo.S.ev)}`),
+      stat("Best case", money0(mo.E.best), cls(mo.E.best), pctFine(mo.E.pBest) + " chance"),
+      stat("Worst case", money0(mo.E.worst), cls(mo.E.worst), pctFine(mo.E.pWorst) + " chance"));
+    kids.splice(1, 0, stat("EV placed", money0(evPlaced), cls(evPlaced), cp ? `of ${money0(evPlan)}` : ""));
+    const more = [];
+    more.push(`${placedItems.length} of ${groupsOf(items).filter((g) => g.state !== "skipped").length} placed`);
+    if (mo.rest) more.push(`with the ${mo.rest.n} still open: ${pctS(mo.rest.S.pBlack)} in the black, exp. ${money0(mo.rest.S.ev)}`);
+    if (mo.n && mo.n > placedItems.length) more.push(`includes ${mo.n - placedItems.length} other bet${mo.n - placedItems.length === 1 ? "" : "s"} that day`);
+    box.replaceChildren(h("div", { class: "tg" }, ...kids), h("div", { class: "more" }, more.join(" · ")));
+  }
+  function renderNotes(cp) {
+    const box = $("#planNotes");
+    box.hidden = !cp;
+    if (!cp) return;
+    const p = cp.plan, target = num(p.target_p_black), trig = (p.triggers || []).length;
+    const head = [`Made ${fmtWhen(p.created_at)}`, target != null ? `target ≥${pctS(target)} in the black ${p.scope === "week" ? "for the week" : "that day"}` : "max EV"];
+    if (num(p.p_black_day) != null) head.push(`plan said ${pctS(num(p.p_black_day))} for the day`);
+    box.replaceChildren(h("details", { open: store.get("planNotesOpen", false) || null, ontoggle: (e) => store.set("planNotesOpen", e.target.open) },
+      h("summary", {}, "Claude's notes"),
+      h("p", { class: "sub", style: "margin-top:6px" }, head.join(" · ")),
+      p.summary ? h("p", { style: "margin:6px 0 0" }, p.summary) : null,
+      trig ? h("p", { style: "margin:6px 0 0" }, `${trig} live-hedge trigger${trig === 1 ? "" : "s"} · `, h("a", { href: "live.html", style: "color:var(--s1)" }, "watch them on Live →")) : null));
+  }
+
+  function renderBooks(cp) {
+    const box = $("#books");
+    if (!cp) {
+      const d = isoT(selDay), others = st.planDates.filter((x) => toT(x) >= selWeek && toT(x) <= selWeek + 6 * DAY);
+      box.replaceChildren(h("div", { class: "card empty" }, `No plan for ${fmtDay(selDay)}.`,
+        selDay >= localToday() ? h("div", { class: "sub", style: "margin-top:4px" }, "Ask Claude in the Sports Bets project to plan it; it shows up here within a minute.") : null,
+        others.length ? h("div", { class: "sub", style: "margin-top:4px" }, "Plans this week: ", ...others.map((x, k) => [k ? ", " : "", h("button", { class: "link", type: "button", onclick: () => pickDay(toT(x)) }, fmtDay(toT(x)))])) : null));
+      return;
+    }
+    const openState = store.get("planBookOpen", {});
+    box.replaceChildren(...bookCards(cp).map((c) => {
+      const key = cp.plan.plan_date + "|" + c.book;
+      const flags = [];
+      const reds = c.groups.filter((g) => g.state === "open" && expiryOf(g.active)?.level === "red").length;
+      const yel = c.groups.filter((g) => g.state === "open" && expiryOf(g.active)?.level === "yellow").length;
+      if (reds) flags.push(h("span", { class: "pill red" }, `${reds} expire${reds === 1 ? "s" : ""} today`));
+      if (yel) flags.push(h("span", { class: "pill yellow" }, `${yel} expire${yel === 1 ? "s" : ""} this week`));
+      const placed = c.groups.filter((g) => g.state === "placed").length;
+      if (placed) flags.push(h("span", { class: "pill won" }, `${placed}/${c.count} placed`));
+      if (c.groups.some((g) => st.newKeys.has(cp.plan.plan_date + "|" + itemKey(g.main)) || g.alts.some((a) => st.newKeys.has(cp.plan.plan_date + "|" + itemKey(a))))) flags.push(h("span", { class: "pill new" }, "New"));
+      const det = h("details", { class: "book" + (c.done ? " done" : ""), open: (openState[key] ?? !c.done) || null,
+        ontoggle: (e) => { const s = store.get("planBookOpen", {}); s[key] = e.target.open; store.set("planBookOpen", s); } },
+        h("summary", {}, h("span", { class: "bk" }, c.book), h("span", { class: "bn" }, `· ${c.count} promo${c.count === 1 ? "" : "s"}`),
+          h("span", { class: "bev num " + cls(c.ev) }, money0(c.ev) + " EV"), h("span", { class: "bflags" }, ...flags)),
+        h("div", { class: "items" }, ...sortGroups(c.groups).map((g) => groupEl(cp, g))));
+      return det;
+    }));
+  }
+  function sortGroups(gs) {
+    const rank = { open: 0, missed: 1, placed: 2, skipped: 3 };
+    return [...gs].sort((a, b) => (rank[a.state] - rank[b.state]) || (itemEV(b.active) - itemEV(a.active)));
+  }
+  function groupEl(cp, g) {
+    const el = itemEl(cp, g.active === g.main ? g.main : g.active, false);
+    const others = g.active === g.main ? g.alts : [g.main, ...g.alts.filter((a) => a !== g.active)];
+    if (others.length) {
+      const k = g.main.id, open = st.altOpen.has(k);
+      const btn = h("button", { type: "button", class: "link", onclick: () => { open ? st.altOpen.delete(k) : st.altOpen.add(k); render(); } },
+        open ? "Hide alternates" : `See alternates (${others.length})`);
+      el.querySelector(".iact").append(btn);
+      if (open) el.append(h("div", { class: "alts" }, ...others.map((a) => itemEl(cp, a, true))));
+    }
+    return el;
+  }
+  function itemEl(cp, i, isAlt) {
+    const s = itemState(i), exp = s === "open" ? expiryOf(i) : null;
+    const g = (i.legs || []).map(findGame).find(Boolean);
+    const busy = st.busy.has(i.id);
+    const meta = [];
+    const stake = stakeOf(i);
+    meta.push(h("span", { class: "num" }, `${isBonus(i) ? (stake ? money(stake, false) + " bonus" : "bonus bet") : money(num(i.cash) ?? 0, false)} → ${money(num(i.payout), false)}`));
+    if (num(i.win_p) != null) meta.push(h("span", { class: "num" }, `· ${pctS(num(i.win_p))} to win`));
+    if (num(i.min_odds) != null) meta.push(h("span", { class: "pill warn" }, `Only at ${amer(num(i.min_odds))} or better`));
+    if (exp && exp.level === "red") meta.push(h("span", { class: "pill red" }, exp.text));
+    else if (exp && exp.level === "yellow") meta.push(h("span", { class: "pill yellow" }, exp.text));
+    else if (exp) meta.push(h("span", {}, "· " + exp.text));
+    if (s === "placed") meta.push(h("span", { class: "pill won" }, "✓ Logged"));
+    else if (s === "skipped") meta.push(h("span", { class: "pill" }, "Skipped"));
+    else if (s === "missed") meta.push(h("span", { class: "pill warn" }, g && g.state === "post" ? "Game over" : "Started"));
+    else if (g) meta.push(h("span", {}, "· " + fmtWhen(g.date)));
+    if (i.is_hedge) meta.push(h("span", { class: "pill" }, "Hedge"));
+    if (st.newKeys.has(cp.plan.plan_date + "|" + itemKey(i))) meta.push(h("span", { class: "pill new" }, "New"));
+
+    const act = [];
+    if (i.slip) act.push(h("button", { type: "button", class: "link", onclick: (e) => copySlip(i.slip, e.target) }, "Copy slip"));
+    const canUndo = s === "placed" && i.placed_at && Date.now() - Date.parse(i.placed_at) < UNDO_MS;
+    if (canUndo) act.push(h("button", { type: "button", class: "link", onclick: () => undo(i) }, "Undo"));
+    if (s === "open" || s === "missed") act.push(h("button", { type: "button", class: "link", onclick: () => skip(i, true) }, "Skip"));
+    if (s === "skipped") act.push(h("button", { type: "button", class: "link", onclick: () => skip(i, false) }, "Unskip"));
+
+    const cb = h("input", { type: "checkbox", class: "cb", "aria-label": "Placed: " + i.label, checked: s === "placed" || null, disabled: busy || s === "skipped" || null,
+      onclick: (e) => { e.preventDefault(); if (s === "placed") { canUndo ? undo(i) : toast("Already logged. To change it, ask Claude."); } else openPlace(i); } });
+    return h("div", { class: ["item", s, isAlt ? "alt" : "", exp && (exp.level === "red" || exp.level === "yellow") ? "exp-" + exp.level : ""].join(" ") },
+      cb,
+      h("div", { class: "ib" },
+        h("div", { class: "ih" }, h("span", { class: "il" }, (isAlt ? "Alt: " : "") + i.label), h("span", { class: "iev num " + cls(itemEV(i)) }, money(itemEV(i)))),
+        i.slip ? h("span", { class: "islip" }, i.slip) : null,
+        h("div", { class: "imeta" }, ...meta),
+        h("div", { class: "iact" }, ...act)));
+  }
+
+  function renderSweep() {
+    const box = $("#sweepCard");
+    box.hidden = false;
+    const today = ctDate(Date.now());
+    const lastSwept = (b) => st.sweeps.find((x) => x.book === b)?.swept_at;
+    const sweptToday = BOOKS.filter(([b]) => { const t = lastSwept(b); return t && ctDate(t) === today; }).length;
+    const rows = BOOKS.map(([b, url]) => {
+      const av = st.avail.filter((p) => p.book === b), ev = av.reduce((x, p) => x + (num(p.ev) || 0), 0);
+      const soon = av.filter((p) => ctDate(p.expires_at) <= today).length;
+      const t = lastSwept(b);
+      const info = [`${av.length} available`, av.length ? money0(ev) + " EV" : null, soon ? `${soon} expire today` : null,
+        t ? "checked " + (ctDate(t) === today ? new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : fmtWhen(t)) : "never checked"].filter(Boolean).join(" · ");
+      return h("div", { class: "sw" }, h("span", { class: "sn" }, b), h("span", { class: "sm num" }, info),
+        h("span", { class: "sb" }, url ? h("a", { class: "btn", href: url, target: "_blank", rel: "noopener" }, "Open") : null,
+          h("button", { type: "button", class: "btn", onclick: () => swept(b) }, "Checked")));
+    });
+    box.replaceChildren(h("details", { open: store.get("sweepOpen", false) || null, ontoggle: (e) => store.set("sweepOpen", e.target.open) },
+      h("summary", {}, `Promo sweep · ${sweptToday} of ${BOOKS.length} books checked today`),
+      h("p", { class: "sub", style: "margin:6px 0 4px" }, "Go book by book: screenshot only what isn't already logged, send the batch to Claude, tap Checked."),
+      h("div", {}, ...rows)));
+  }
+
+  // ---------- actions ----------
+  let toastTimer = null;
+  function toast(msg, actionText, action) {
+    const t = $("#toast");
+    t.replaceChildren(h("span", {}, msg), actionText ? h("button", { type: "button", onclick: () => { t.hidden = true; action(); } }, actionText) : null);
+    t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), actionText ? 8000 : 4000);
+  }
+  async function copySlip(text, btn) {
+    try { await navigator.clipboard.writeText(text); btn.textContent = "Copied"; setTimeout(() => (btn.textContent = "Copy slip"), 1500); }
+    catch { toast("Couldn't copy on this browser."); }
+  }
+
+  // PIN: asked once per device, kept in localStorage. A wrong or changed PIN clears it and asks again.
+  function askPin(msg) {
+    return new Promise((resolve) => {
+      const dlg = $("#pinDlg"), inp = $("#pinIn");
+      $("#pinMsg").textContent = msg || "Asked once on this device, then remembered.";
+      inp.value = "";
+      const done = (v) => { dlg.close(); $("#pinForm").onsubmit = null; $("#pinCancel").onclick = null; resolve(v); };
+      $("#pinForm").onsubmit = (e) => { e.preventDefault(); done(inp.value.trim() || null); };
+      $("#pinCancel").onclick = () => done(null);
+      dlg.showModal(); inp.focus();
+    });
+  }
+  // Runs an RPC with the stored PIN, asking for it when missing or wrong.
+  async function withPin(fn, body) {
+    let pin = store.get("planPin", null), msg = null;
+    for (let tries = 0; tries < 3; tries++) {
+      if (!pin) { pin = await askPin(msg); if (!pin) return null; }
+      const r = await rpc(fn, { ...body, p_pin: pin });
+      if (r.ok || !["pin", "no_pin", "locked"].includes(r.error)) { if (r.ok) store.set("planPin", pin); return r; }
+      store.del("planPin");
+      if (r.error === "locked") { toast("Too many wrong PINs. Writes are locked for 15 minutes."); return null; }
+      if (r.error === "no_pin") { toast("No PIN set yet. Run set-plan-pin.sh on the Mac."); return null; }
+      pin = null; msg = "That PIN didn't match. Try again.";
+    }
+    return null;
+  }
+  const ERR = { superseded: "Claude replaced this plan. Refreshing…", already_placed: "Already logged.", too_late: "Undo window passed (10 min). Ask Claude to fix it.",
+    not_found: "That item is gone (plan revised). Refreshing…", stake: "Enter a stake.", placed: "Already logged.", not_placed: "Not logged yet." };
+
+  let placing = null;
+  function openPlace(i) {
+    placing = i;
+    const o = oddsOf(i), s = stakeOf(i);
+    $("#pdTitle").textContent = i.label;
+    $("#pdSlip").textContent = [i.book, i.slip, isBonus(i) && !/bonus/i.test(i.slip || "") ? "bonus bet" : null].filter(Boolean).join(" · ");
+    $("#pdOdds").value = o == null ? "" : amer(o);
+    $("#pdStake").value = s == null ? "" : String(s);
+    updatePreview();
+    $("#placeDlg").showModal();
+  }
+  function readOdds() { const v = $("#pdOdds").value.replace(/[^\d+-]/g, ""); const n = Number(v); return v && Number.isFinite(n) && Math.abs(n) >= 100 ? Math.round(n) : null; }
+  function readStake() { const n = Number($("#pdStake").value.replace(/[$,\s]/g, "")); return Number.isFinite(n) && n > 0 ? n : null; }
+  function updatePreview() {
+    const i = placing; if (!i) return;
+    const o = readOdds(), s = readStake(), q = s ? quote(i, o, s) : null;
+    $("#pdPreview").textContent = q ? `To pay ${money(q.pay, false)}${q.ev != null ? ` · EV ${money(q.ev)}` : ""}${num(i.odds) == null && o != null && o !== oddsOf(i) ? " · payout not recalculated (older plan)" : ""}` : "Enter the stake.";
+    const floor = num(i.min_odds), w = $("#pdWarn");
+    w.hidden = !(floor != null && o != null && decOf(o) < decOf(floor) - 1e-9);
+    w.textContent = `Below the plan's floor (${amer(floor)}). The plan says skip it at this price; log it only if you placed it anyway.`;
+    $("#pdGo").disabled = !s;
+  }
+  $("#pdOdds").addEventListener("input", updatePreview);
+  $("#pdStake").addEventListener("input", updatePreview);
+  $("#pdSign").addEventListener("click", () => { const o = readOdds(); if (o != null) { $("#pdOdds").value = amer(-o); updatePreview(); } });
+  $("#pdCancel").addEventListener("click", () => { $("#placeDlg").close(); placing = null; });
+  $("#placeForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const i = placing; if (!i) return;
+    const o = readOdds(), s = readStake();
+    $("#placeDlg").close(); placing = null;
+    st.busy.add(i.id); render();
+    const r = await withPin("place_plan_item", { p_item: i.id, p_odds: o, p_stake: s });
+    st.busy.delete(i.id);
+    if (r && r.ok) toast(`Logged · to pay ${money(num(r.to_pay), false)}`, "Undo", () => undo({ ...i, status: "placed", placed_at: new Date().toISOString() }));
+    else if (r) toast(ERR[r.error] || "Couldn't log it: " + r.error);
+    await refresh();
+  });
+  async function undo(i) {
+    st.busy.add(i.id); render();
+    const r = await withPin("undo_plan_item", { p_item: i.id });
+    st.busy.delete(i.id);
+    if (r && r.ok) toast("Undone. The bet was removed from your log.");
+    else if (r) toast(ERR[r.error] || "Couldn't undo: " + r.error);
+    await refresh();
+  }
+  async function skip(i, yes) {
+    st.busy.add(i.id); render();
+    const r = await withPin("skip_plan_item", { p_item: i.id, p_skip: yes });
+    st.busy.delete(i.id);
+    if (r && !r.ok) toast(ERR[r.error] || "Couldn't update: " + r.error);
+    await refresh();
+  }
+  async function swept(book) {
+    const r = await withPin("mark_book_swept", { p_book: book });
+    if (r && r.ok) toast(`${book} marked checked.`); else if (r) toast("Couldn't save: " + r.error);
+    await refresh();
+  }
+
+  // ---------- start ----------
+  render();
+  refresh();
+  setInterval(() => { if (!document.hidden && !$("#placeDlg").open && !$("#pinDlg").open) refresh(); }, POLL_MS);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - (st.lastAt || 0) > 20000) refresh(); });
+})();
+</script>
+</body></html>
