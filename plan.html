@@ -37,6 +37,7 @@ h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
 .dot.live{background:var(--good-mark)} .dot.stale{background:var(--warn)} .dot.err{background:var(--bad-mark)}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;min-height:34px}
+a.btn{text-decoration:none;display:inline-flex;align-items:center}
 .btn:hover{background:var(--chip)} .btn:disabled{opacity:.5;cursor:default}
 .btn.primary{background:var(--ink);color:var(--surface);border-color:var(--ink);font-weight:600}
 .link{border:0;background:none;padding:0;color:var(--s1);font-size:13px;cursor:pointer}
@@ -179,7 +180,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   const SB_KEY = "sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG";
   const PLAN_COLS = "id,created_at,plan_date,scope,target_p_black,target_on,withdrawn,banked_day,banked_week,p_black_day,p_black_week,ev,summary,triggers";
   const COLS = "id,bet,game,settle_date,league,promo,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct,fair_win_pct,ev,to_pay,refund_on_loss,legs";
-  const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev";
+  const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev,terms_read";
   const DAY = 86400000, UNDO_MS = 10 * 60000, POLL_MS = 60000;
   const ESPN = LiveCore.ESPN, FOOTBALL = LiveCore.FOOTBALL;
   const WEEK_ANCHORS = LiveCore.WEEK_ANCHORS.map(toT);
@@ -282,7 +283,8 @@ dialog form{display:flex;flex-direction:column;gap:12px}
       sb(`bets?select=${COLS}&settle_date=gte.${isoT(ws)}&settle_date=lte.${isoT(we)}&order=settle_date&limit=2000`),
     ]);
     st.promos = new Map([...avail, ...promos].map((p) => [p.id, p]));
-    st.avail = avail; st.bets = bets;
+    // Past-expiry promos stay "Available" until the nightly task marks them Expired; don't list them.
+    st.avail = avail.filter((p) => !p.expires_at || Date.parse(p.expires_at) > Date.now()); st.bets = bets;
     // Placed items can point at bets dated outside the week (futures, a later game): fetch those too.
     const missing = st.items.filter((i) => i.bet_id && !bets.some((b) => b.id === i.bet_id)).map((i) => i.bet_id);
     if (missing.length) st.extraBets = await sb(`bets?select=${COLS}&id=in.(${missing.join(",")})`); else st.extraBets = [];
@@ -362,8 +364,8 @@ dialog form{display:flex;flex-direction:column;gap:12px}
       store.set(k, [...new Set([...(seen || []), ...keys])].slice(-400));
     }
   }
-  function expiryOf(i) {
-    const p = i.promo_id && st.promos.get(i.promo_id);
+  function expiryOf(i) { return promoExpiry(i.promo_id && st.promos.get(i.promo_id)); }
+  function promoExpiry(p) {
     if (!p || !p.expires_at) return null;
     const t = Date.parse(p.expires_at), today = ctDate(Date.now()), wk = weekOf(localToday()), wEnd = isoT(wk.start + 6 * DAY);
     const d = ctDate(t), when = new Date(t).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" });
@@ -444,7 +446,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     renderTotals(cp);
     renderNotes(cp);
     renderBooks(cp);
-    renderSweep();
+    renderSweep(cp);
   }
   function renderFresh() {
     const dot = $("#dot"), t = $("#freshText");
@@ -522,6 +524,13 @@ dialog form{display:flex;flex-direction:column;gap:12px}
 
   function renderBooks(cp) {
     const box = $("#books");
+    if (!cp && selDay >= localToday()) {
+      box.replaceChildren(h("div", { class: "card" },
+          h("h2", {}, `No plan for ${fmtDay(selDay)} yet`),
+          h("p", { class: "sub" }, "Promos already logged, by book. Screenshot only what's missing (Claude also reads FanDuel, bet365 and Novig emails), send the batch to Claude, tap Checked, then ask for the plan. Suggested bets replace this list once the plan is saved.")),
+        ...promoBooks().map(([b, url]) => promoBlock(b, url)));
+      return;
+    }
     if (!cp) {
       const d = isoT(selDay), others = st.planDates.filter((x) => toT(x) >= selWeek && toT(x) <= selWeek + 6 * DAY);
       box.replaceChildren(h("div", { class: "card empty" }, `No plan for ${fmtDay(selDay)}.`,
@@ -601,26 +610,55 @@ dialog form{display:flex;flex-direction:column;gap:12px}
         h("div", { class: "iact" }, ...act)));
   }
 
-  function renderSweep() {
+  // Books for the promo lists: the sweep list first, then any other book that has an Available promo.
+  function promoBooks() {
+    const extra = [...new Set(st.avail.map((p) => p.book || "Other"))].filter((b) => !BOOKS.some(([x]) => x === b)).sort();
+    return [...BOOKS, ...extra.map((b) => [b, null])];
+  }
+  const lastSwept = (b) => st.sweeps.find((x) => x.book === b)?.swept_at;
+  function promoWhat(p) {
+    const amt = num(p.amount), pct = num(p.boost_pct);
+    const bits = [p.type];
+    if (pct != null && p.type !== "Bonus bet") bits.push(Math.round(pct * 100) + "%");
+    if (amt != null) bits.push(p.type === "Bonus bet" ? money(amt, false) : "up to " + money(amt, false));
+    if (p.league) bits.push(p.league);
+    return bits.join(" · ");
+  }
+  function promoRow(p) {
+    const exp = promoExpiry(p), ev = num(p.ev);
+    return h("div", { class: "item promo" + (exp && (exp.level === "red" || exp.level === "yellow") ? " exp-" + exp.level : "") },
+      h("div", { class: "ib", style: "grid-column:1/-1" },
+        h("div", { class: "ih" }, h("span", { class: "il" }, p.name), h("span", { class: "iev num " + cls(ev ?? 0) }, ev == null ? "EV —" : money(ev))),
+        h("div", { class: "imeta" }, h("span", {}, promoWhat(p)),
+          exp ? (exp.level === "red" || exp.level === "yellow" ? h("span", { class: "pill " + exp.level }, exp.text) : h("span", {}, "· " + exp.text)) : h("span", {}, "· no expiry logged"),
+          p.terms_read === false ? h("span", { class: "pill warn" }, "Terms not read") : null)));
+  }
+  function promoBlock(b, url) {
+    const today = ctDate(Date.now()), av = st.avail.filter((p) => (p.book || "Other") === b);
+    const ev = av.reduce((x, p) => x + (num(p.ev) || 0), 0), soon = av.filter((p) => p.expires_at && ctDate(p.expires_at) <= today).length;
+    const t = lastSwept(b), checkedToday = t && ctDate(t) === today;
+    const open = store.get("promoOpen", {})[b];
+    return h("details", { class: "book", open: open || null, ontoggle: (e) => { const m = store.get("promoOpen", {}); m[b] = e.target.open; store.set("promoOpen", m); } },
+      h("summary", {}, h("span", { class: "bk" }, b), h("span", { class: "bn" }, `· ${av.length} promo${av.length === 1 ? "" : "s"}`),
+        h("span", { class: "bev num " + cls(ev) }, av.length ? money0(ev) + " EV" : ""),
+        h("span", { class: "bflags" }, soon ? h("span", { class: "pill red" }, `${soon} expire${soon === 1 ? "s" : ""} today`) : null,
+          checkedToday ? h("span", { class: "pill won" }, "✓ Checked " + new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))
+            : h("span", { class: "pill" }, t ? "Checked " + fmtWhen(t) : "Not checked yet"))),
+      h("div", { class: "items" },
+        h("div", { class: "iact", style: "padding:4px 0 8px" }, url ? h("a", { class: "btn", href: url, target: "_blank", rel: "noopener" }, "Open " + b) : null,
+          h("button", { type: "button", class: "btn", onclick: () => swept(b) }, checkedToday ? "Checked again" : "Mark checked")),
+        ...(av.length ? av.map(promoRow) : [h("p", { class: "sub", style: "padding:6px 0 10px" }, "Nothing logged for this book.")])));
+  }
+  function renderSweep(cp) {
     const box = $("#sweepCard");
-    box.hidden = false;
-    const today = ctDate(Date.now());
-    const lastSwept = (b) => st.sweeps.find((x) => x.book === b)?.swept_at;
+    box.hidden = !cp && selDay >= localToday();   // the no-plan view already is the sweep
+    if (box.hidden) return;
+    const today = ctDate(Date.now()), books = promoBooks();
     const sweptToday = BOOKS.filter(([b]) => { const t = lastSwept(b); return t && ctDate(t) === today; }).length;
-    const rows = BOOKS.map(([b, url]) => {
-      const av = st.avail.filter((p) => p.book === b), ev = av.reduce((x, p) => x + (num(p.ev) || 0), 0);
-      const soon = av.filter((p) => ctDate(p.expires_at) <= today).length;
-      const t = lastSwept(b);
-      const info = [`${av.length} available`, av.length ? money0(ev) + " EV" : null, soon ? `${soon} expire today` : null,
-        t ? "checked " + (ctDate(t) === today ? new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : fmtWhen(t)) : "never checked"].filter(Boolean).join(" · ");
-      return h("div", { class: "sw" }, h("span", { class: "sn" }, b), h("span", { class: "sm num" }, info),
-        h("span", { class: "sb" }, url ? h("a", { class: "btn", href: url, target: "_blank", rel: "noopener" }, "Open") : null,
-          h("button", { type: "button", class: "btn", onclick: () => swept(b) }, "Checked")));
-    });
     box.replaceChildren(h("details", { open: store.get("sweepOpen", false) || null, ontoggle: (e) => store.set("sweepOpen", e.target.open) },
-      h("summary", {}, `Promo sweep · ${sweptToday} of ${BOOKS.length} books checked today`),
-      h("p", { class: "sub", style: "margin:6px 0 4px" }, "Go book by book: screenshot only what isn't already logged, send the batch to Claude, tap Checked."),
-      h("div", {}, ...rows)));
+      h("summary", {}, `Promos on file · ${st.avail.length} · ${sweptToday} of ${BOOKS.length} books checked today`),
+      h("p", { class: "sub", style: "margin:6px 0 8px" }, "Every Available promo by book. Tap a book to see them."),
+      h("div", { class: "books" }, ...books.map(([b, url]) => promoBlock(b, url)))));
   }
 
   // ---------- actions ----------
