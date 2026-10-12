@@ -2,7 +2,7 @@
 <title>Live Bets</title>
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
-/* Layout: phone-first single column. Header + Today/Week toggle, headline odds, KPI grid, outcome histogram, cheer list, game cards, settled list. */
+/* Layout: phone-first single column. Header (status doubles as the error notice) + Today/Week and league toggles, headline odds, KPI grid, outcome histogram, cheer list, game cards, plan, settled list. */
 :root{
   --page:#f4f4f1; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#7d7b75;
   --grid:#e6e5df; --axis:#c3c2b7; --line:rgba(11,11,11,.10); --chip:#ecebe6;
@@ -36,7 +36,7 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:10px;
 h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em}
 .fresh{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--ink-2)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);flex:none}
-.dot.live{background:var(--good-mark)} .dot.stale{background:var(--warn)}
+.dot.live{background:var(--good-mark)} .dot.stale{background:var(--warn)} .dot.err{background:var(--bad-mark)}
 .btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 10px;font-size:13px;cursor:pointer;min-height:34px}
 .btn:hover{background:var(--chip)} .btn:disabled{opacity:.5;cursor:default}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
@@ -44,9 +44,9 @@ h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em}
 .seg button[aria-pressed="true"]{background:var(--ink);color:var(--surface);font-weight:600}
 .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
 .span{font-size:13px;color:var(--ink-2)}
-
-.banner{border:1px solid var(--line);border-left:4px solid var(--warn);background:var(--surface);border-radius:8px;padding:10px 12px;font-size:14px}
-.banner.err{border-left-color:var(--bad-mark)}
+.toggles{display:flex;gap:8px;flex-wrap:wrap;min-width:0;max-width:100%}
+.seg.lg{max-width:100%;overflow-x:auto}
+.seg.lg button{white-space:nowrap}
 
 .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:10px}
 .card h2{font-size:16px;margin:0}
@@ -73,6 +73,7 @@ h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em}
 .ch .cp{text-align:right;font-weight:650}
 .ch .cs{font-size:12.5px;color:var(--muted);grid-column:1/-1}
 .ch .cs b{font-weight:600}
+.ch .cb{font-size:12.5px;color:var(--muted);grid-column:1/-1;overflow-wrap:anywhere}
 .ch .cbar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--chip);overflow:hidden}
 .ch .cbar i{display:block;height:100%;background:var(--ink-2)}
 
@@ -107,16 +108,18 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     <div class="fresh"><span class="dot" id="dot"></span><span id="freshText">Loading…</span></div>
   </header>
   <div class="bar">
-    <div class="seg" role="group" aria-label="Time window"><button type="button" data-mode="day" aria-pressed="true">Today</button><button type="button" data-mode="week" aria-pressed="false">This week</button></div>
+    <div class="toggles">
+      <div class="seg" role="group" aria-label="Time window"><button type="button" data-mode="day" aria-pressed="true">Today</button><button type="button" data-mode="week" aria-pressed="false">This week</button></div>
+      <div class="seg lg" role="group" aria-label="League" id="leagues" hidden></div>
+    </div>
     <span class="span num" id="span"></span>
   </div>
-  <div id="banner" hidden></div>
   <section class="card hero" id="hero"><div class="skel" style="height:44px;width:60%"></div><div class="skel" style="width:80%"></div></section>
   <section class="kpis" id="kpis"></section>
-  <section class="card" id="planCard" hidden></section>
   <section class="card" id="histCard" hidden><div><h2>Where it could end</h2><p class="sub">Chance of each final P/L range, from 20,000 simulated finishes</p></div><div class="chart" id="hist"></div></section>
   <section class="card" id="cheerCard" hidden><div><h2>Cheer for</h2><p class="sub">Biggest swings first · % = chance now · P/L if it happens / if it doesn't</p></div><div class="cheer" id="cheer"></div></section>
   <div id="games" style="display:flex;flex-direction:column;gap:14px"></div>
+  <section class="card" id="planCard" hidden></section>
   <section class="card" id="settledCard" hidden><details id="settledBox"><summary id="settledSum">Settled earlier</summary><div id="settled"></div></details></section>
   <div class="foot">
     <div class="lines"><span id="linesText">Game lines: loading…</span><button class="btn" type="button" id="linesBtn">Refresh lines</button></div>
@@ -304,7 +307,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
         if (ok) { win[i] = 1; wins++; pl[i] += b.payout - b.cash; }
         else { pl[i] -= b.cash; refunds[i] += (b.refund || 0) * bv; }
       }
-      perBet.push({ id: b.id, winP: wins / n, pushP: pushes / n, est: legsV.some((x) => x.o.est), win });
+      perBet.push({ id: b.id, winP: wins / n, pushP: pushes / n, est: legsV.some((x) => x.o.est), win,
+        cash: b.cash, payout: b.payout, legs: legsV.map(({ o, want }) => ({ key: o.spec.key, want })) });
     }
     for (let i = 0; i < n; i++) pl[i] += fixed;
     return { n, pl, refunds, fixed, perBet, outcomes, sims };
@@ -319,6 +323,73 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     for (let i = 0; i < n; i++) { const x = pl[i]; sum += x; if (x > 0.005) black++; else if (x < -0.005) red++; const y = x + refunds[i]; sumR += y; if (y > 0.005) blackR++; }
     return { pBlack: black / n, pRed: red / n, ev: sum / n, evR: sumR / n, pBlackR: blackR / n,
       p5: q(0.05), p25: q(0.25), median: q(0.5), p75: q(0.75), p95: q(0.95), min: sorted[0], max: sorted[n - 1], sorted };
+  }
+
+  // Best and worst final P/L over combinations of results that can actually happen together (conflicting bets can't
+  // both win). Results on one game move together: each game's possible result combos are the distinct ones seen in the
+  // sims; props and unmodelled legs vary on their own. Starts from the best (worst) sim, then switches one game at a
+  // time to its best (worst) combo until nothing improves. Exact when no parlay spans games; never worse than the sims.
+  // Chance of that P/L: the share of sims that land on it, or, when it's too rare for the sims to hit often, the product
+  // over games of the chance each game's results give it (games are independent).
+  function extremes(res) {
+    const { n, pl, outcomes, perBet, fixed } = res;
+    const bets = perBet.filter((b) => b.legs);
+    if (!bets.length) return { best: fixed, worst: fixed, pBest: 1, pWorst: 1 };
+    const groups = new Map();
+    for (const o of outcomes.values()) {
+      const own = o.spec.type === "prop" || o.spec.type === "flat" || !o.spec.g;
+      const gk = own ? "o:" + o.spec.key : "g:" + o.spec.g;
+      (groups.get(gk) || groups.set(gk, []).get(gk)).push(o);
+    }
+    const G = [...groups.values()].map((os) => {
+      const combos = new Map();
+      for (let i = 0; i < n; i++) { const t = os.map((o) => o.v[i]); const k = t.join(""); const c = combos.get(k); if (c) c.c++; else combos.set(k, { t, c: 1 }); }
+      const list = [...combos.values()];
+      return { keys: os.map((o) => o.spec.key), combos: list.map((x) => x.t), pr: list.map((x) => x.c / n) };
+    });
+    const total = (A) => {
+      let s = fixed;
+      for (const b of bets) {
+        let ok = true, allPush = true;
+        for (const { key, want } of b.legs) { const x = A.get(key); if (x === 2) continue; allPush = false; if ((x === 1) !== want) { ok = false; break; } }
+        if (ok && !allPush) s += b.payout - b.cash; else if (!ok) s -= b.cash;
+      }
+      return s;
+    };
+    function search(better) {
+      let i0 = 0;
+      for (let i = 1; i < n; i++) if (better(pl[i], pl[i0])) i0 = i;
+      const A = new Map([...outcomes.values()].map((o) => [o.spec.key, o.v[i0]]));
+      let cur = total(A);
+      for (let pass = 0; pass < 20; pass++) {
+        let moved = false;
+        for (const g of G) {
+          const was = g.keys.map((k) => A.get(k));
+          let bestT = was, bestV = cur;
+          for (const t of g.combos) {
+            g.keys.forEach((k, j) => A.set(k, t[j]));
+            const v = total(A);
+            if (better(v, bestV)) { bestV = v; bestT = t; }
+          }
+          g.keys.forEach((k, j) => A.set(k, bestT[j]));
+          if (bestT !== was) { cur = bestV; moved = true; }
+        }
+        if (!moved) break;
+      }
+      let p = 1;
+      for (const g of G) {
+        const was = g.keys.map((k) => A.get(k));
+        let pg = 0;
+        g.combos.forEach((t, j) => { g.keys.forEach((k, i) => A.set(k, t[i])); if (Math.abs(total(A) - cur) < 0.005) pg += g.pr[j]; });
+        g.keys.forEach((k, i) => A.set(k, was[i]));
+        p *= pg;
+      }
+      let hit = 0;
+      for (let i = 0; i < n; i++) if (Math.abs(pl[i] - cur) < 0.005) hit++;
+      return { v: cur, p: Math.max(p, hit / n) };
+    }
+    const B = search((a, b) => a > b + 1e-9), W = search((a, b) => a < b - 1e-9);
+    return { best: B.v, worst: W.v, pBest: B.p, pWorst: W.p };
   }
 
   // Cheer list: each undecided outcome, oriented so "it happens" helps; ranked by swing x uncertainty.
@@ -340,7 +411,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return out.sort((a, b) => b.score - a.score);
   }
 
-  root.LiveModel = { ncdf, ninv, fitFootball, simFootball, propProb, run, summarize, cheer, rng, legOutcome };
+  root.LiveModel = { ncdf, ninv, fitFootball, simFootball, propProb, run, summarize, extremes, cheer, rng, legOutcome };
 })(typeof window !== "undefined" ? window : globalThis);
 </script>
 
@@ -386,7 +457,17 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   const money0 = (n) => (n > 0.5 ? "+$" : n < -0.5 ? "−$" : "$") + Math.abs(Math.round(n)).toLocaleString("en-US");
   const cls = (n) => (n > 0.004 ? "pos" : n < -0.004 ? "neg" : "");
   const pctS = (p) => (p >= 0.995 && p < 1 ? ">99" : p > 0 && p <= 0.005 ? "<1" : String(Math.round(p * 100))) + "%";
-  const fmtLine = (x) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x);
+  // Small chances keep one significant digit (0.4%, 0.03%) instead of rounding to 0; rarer than 0.01% reads "1 in 33 million".
+  function pctFine(p) {
+    if (p >= 0.995) return ">99%";
+    if (p >= 0.01) return Math.round(p * 100) + "%";
+    if (p >= 0.0001) return Number((p * 100).toPrecision(1)) + "%";
+    if (!(p > 0)) return "0%";
+    const x = 1 / p, [d, w] = x >= 1e12 ? [1e12, " trillion"] : x >= 1e9 ? [1e9, " billion"] : x >= 1e6 ? [1e6, " million"] : [1, ""];
+    const v = Number((x / d).toPrecision(2));
+    return "1 in " + (w ? v.toLocaleString("en-US") + w : Math.round(v).toLocaleString("en-US"));
+  }
+  const fmtLine =(x) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x);
   const fmtDay = (t, o = { weekday: "short", month: "short", day: "numeric" }) => new Date(t).toLocaleDateString("en-US", { timeZone: "UTC", ...o });
   const clock = (t) => new Date(t).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
   function weekOf(t) {
@@ -396,8 +477,10 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return { w, start: a + (w - 1) * 7 * DAY };
   }
 
-  let mode = "day";
-  try { if (localStorage.getItem("liveMode") === "week") mode = "week"; } catch {}
+  let mode = "day", league = "all";
+  try { if (localStorage.getItem("liveMode") === "week") mode = "week"; league = localStorage.getItem("liveLeague") || "all"; } catch {}
+  // A bet counts for a league if the bet or any of its legs is in it ("Mixed" parlays show under each of their leagues).
+  const betLeagues = (b) => new Set([b.league, ...(b.legs || []).map((l) => l.league)].filter((x) => x && x !== "Mixed"));
   const st = { bets: [], plans: [], planItems: [], games: new Map(), lines: [], linesInfo: null, summaries: new Map(), loaded: false, err: null, lastAt: null };
 
   function bounds() {
@@ -596,9 +679,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return cash === 0 ? profit : stake + profit;
   }
 
-  function build(extra = []) {
-    const [a, z] = bounds();
-    const view = st.bets.filter((b) => { const t = toT(b.settle_date); return t >= a && t <= z; }).concat(extra);
+  function inWindow() { const [a, z] = bounds(); return st.bets.filter((b) => { const t = toT(b.settle_date); return t >= a && t <= z; }); }
+  function build(extra = [], lg = league) {
+    const view = inWindow().concat(extra).filter((b) => lg === "all" || betLeagues(b).has(lg));
     const games = {}, bets = [], meta = new Map(), gameBets = new Map(), lineSrc = {};
     const legsByGame = new Map();
     for (const b of view) for (const l of b.legs || []) { const g = findGame(l); if (g) (legsByGame.get(g.id) || legsByGame.set(g.id, []).get(g.id)).push(l); }
@@ -664,22 +747,23 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     document.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
     $("#span").textContent = (REPLAY ? "Replay · " : "") + (mode === "day" ? fmtDay(a) : `Week ${wk} · ${fmtDay(a, { month: "short", day: "numeric" })}–${fmtDay(z, { month: "short", day: "numeric" })}`);
     if (!st.loaded) return;
+    renderLeagues();
     const P = build();
     const pend = P.bets.filter((b) => b.fixedPL == null), settled = P.bets.filter((b) => b.fixedPL != null);
     const word = mode === "day" ? "today" : "the week";
     const hero = $("#hero");
 
     if (!P.bets.length) {
-      hero.replaceChildren(h("span", { class: "lead" }, `No bets ${mode === "day" ? "settling today" : "this betting week"}.`),
+      hero.replaceChildren(h("span", { class: "lead" }, `No ${league === "all" ? "" : league + " "}bets ${mode === "day" ? "settling today" : "this betting week"}.`),
         h("span", { class: "meta" }, mode === "day" ? "Futures and later games aren't counted. Try This week." : "Futures aren't counted."));
       $("#kpis").replaceChildren(); $("#histCard").hidden = $("#cheerCard").hidden = $("#settledCard").hidden = true; $("#games").replaceChildren();
-      renderPlan(null);
+      renderPlan(planRes());
       renderLinesInfo();
       return;
     }
     const res = M.run({ games: P.games, bets: P.bets, n: 20000, seed: 7 });
-    const S = M.summarize(res);
-    const atRisk = pend.reduce((x, b) => x + b.cash, 0), maxWin = pend.reduce((x, b) => x + (b.payout - b.cash), 0);
+    const S = M.summarize(res), E = M.extremes(res);
+    const atRisk = pend.reduce((x, b) => x + b.cash, 0);
 
     if (!pend.length) {
       hero.replaceChildren(h("span", { class: "lead" }, `All settled for ${word}`),
@@ -695,16 +779,32 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     $("#kpis").replaceChildren();
     if (pend.length) $("#kpis").replaceChildren(
       kpi("Cash at risk", money(atRisk, false), "", `${pend.length} open bet${pend.length === 1 ? "" : "s"}`),
-      kpi("If every open bet won", money(maxWin), cls(maxWin), "can't all happen at once"),
+      kpi("Best case", money(E.best), cls(E.best), `${pctFine(E.pBest)} chance`),
       kpi("Locked in", money(res.fixed), cls(res.fixed), `${settled.length} settled`),
-      kpi("Worst case", money0(S.min), cls(S.min), `best case ${money0(S.max)}`));
-
-    renderPlan(res);
+      kpi("Worst case", money(E.worst), cls(E.worst), `${pctFine(E.pWorst)} chance`));
+    renderPlan(league === "all" ? res : planRes());
     renderHist(S, pend.length > 0);
     renderCheer(res, P);
     renderGames(res, P);
     renderSettled(P, settled);
     renderLinesInfo(P);
+  }
+
+  // League toggle: All plus every league with a bet (open or settled) in the Today/This week window.
+  function renderLeagues() {
+    const set = new Set();
+    for (const b of inWindow()) for (const lg of betLeagues(b)) set.add(lg);
+    const order = ["NFL", "CFB", "NBA", "NCAAB", "MLB", "NHL"], list = [...set].sort((x, y) => (order.indexOf(x) + 1 || 99) - (order.indexOf(y) + 1 || 99) || x.localeCompare(y));
+    if (league !== "all" && !set.has(league)) league = "all";
+    const box = $("#leagues");
+    box.hidden = !list.length;
+    box.replaceChildren(...["all", ...list].map((lg) => h("button", { type: "button", "data-league": lg, "aria-pressed": String(lg === league) }, lg === "all" ? "All" : lg)));
+  }
+  // The plan spans leagues, so with a league picked it is simulated on all of the window's bets.
+  function planRes() {
+    if (REPLAY || !currentPlan()) return null;
+    const P = build([], "all");
+    return P.bets.length ? M.run({ games: P.games, bets: P.bets, n: 20000, seed: 7 }) : null;
   }
 
   function renderHist(S, show) {
@@ -718,7 +818,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     if (b1 === b0) b1 = b0 + step;
     const nb = Math.round((b1 - b0) / step), counts = new Array(nb).fill(0);
     for (const x of xs) counts[Math.min(nb - 1, Math.max(0, Math.floor((x - b0) / step)))]++;
-    const W = Math.max(280, box.clientWidth || 340), H = 150, m = { l: 6, r: 6, t: 16, b: 22 };
+    const W = Math.max(280, box.clientWidth || 340), H = 150, m = { l: 20, r: 20, t: 16, b: 22 };   // side room so the end $ labels can centre on their edge
     const bw = (W - m.l - m.r) / nb, maxC = Math.max(...counts);
     const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Distribution of final P/L" });
     counts.forEach((c, i) => {
@@ -726,11 +826,17 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       const color = x0 >= 0 ? "--good-mark" : x1 <= 0 ? "--bad-mark" : "--axis";
       const r = s("rect", { x: m.l + i * bw + 1, y: H - m.b - hgt, width: Math.max(1, bw - 2), height: hgt, rx: 2, style: `fill:var(${color})` });
       const t = s("title", {}); t.textContent = `${money0(x0)} to ${money0(x1)}: ${pctS(c / n)}`; r.append(t); svg.append(r);
-      if (c / n >= 0.04) { const tx = s("text", { x: m.l + i * bw + bw / 2, y: H - m.b - hgt - 4, "text-anchor": "middle" }); tx.textContent = Math.round((c / n) * 100) + "%"; svg.append(tx); }
+      if (c > 0) { const tx = s("text", { x: m.l + i * bw + bw / 2, y: H - m.b - hgt - 4, "text-anchor": "middle" }); tx.textContent = c / n < 0.01 ? "<1%" : Math.round((c / n) * 100) + "%"; svg.append(tx); }
     });
     const X = (v) => m.l + ((v - b0) / (b1 - b0)) * (W - m.l - m.r);
     svg.append(s("line", { x1: X(0), x2: X(0), y1: m.t - 6, y2: H - m.b, style: "stroke:var(--ink-2);stroke-width:1;stroke-dasharray:3 3" }));
-    for (const v of [b0, 0, b1]) { const tx = s("text", { x: X(v), y: H - 6, "text-anchor": v === b0 ? "start" : v === b1 ? "end" : "middle" }); tx.textContent = v === 0 ? "$0" : money0(v); svg.append(tx); }
+    // $ at every bar edge (each bar is the range between its two labels); every 2nd/3rd edge when bars are narrow. $0 always shows.
+    const every = Math.max(1, Math.ceil(40 / bw)), i0 = Math.round(-b0 / step);
+    for (let i = 0; i <= nb; i++) {
+      if ((i - i0) % every !== 0) continue;
+      const v = b0 + i * step, tx = s("text", { x: X(v), y: H - 6, "text-anchor": "middle" });
+      tx.textContent = v === 0 ? "$0" : money0(v); svg.append(tx);
+    }
     box.replaceChildren(svg);
   }
 
@@ -748,11 +854,54 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const rows = M.cheer(res, extra).slice(0, 12);
     $("#cheerCard").hidden = !rows.length;
     const maxS = Math.max(1, ...rows.map((r) => r.swing));
+    const byKey = new Map();   // outcome key -> open bets with a leg on it
+    for (const b of P.bets) (b.legs || []).forEach(({ g, leg }, i) => {
+      const k = M.legOutcome(g, leg, b.id, i).key, list = byKey.get(k) || byKey.set(k, []).get(k);
+      if (!list.includes(b)) list.push(b);
+    });
     $("#cheer").replaceChildren(...rows.map((r) => h("div", { class: "ch" },
       h("span", { class: "cl" }, outcomeLabel(r.o, r.yes, P)),
       h("span", { class: "cp num" }, pctS(r.p)),
       h("span", { class: "cbar", "aria-hidden": "true" }, h("i", { style: `width:${(r.swing / maxS * 100).toFixed(0)}%` })),
-      h("span", { class: "cs num" }, "If yes ", h("b", { class: cls(r.ifYes) }, money0(r.ifYes)), " · if not ", h("b", { class: cls(r.ifNo) }, money0(r.ifNo)), r.o.est ? " · est." : ""))));
+      h("span", { class: "cs num" }, "If yes ", h("b", { class: cls(r.ifYes) }, money0(r.ifYes)), " · if not ", h("b", { class: cls(r.ifNo) }, money0(r.ifNo)), r.o.est ? " · est." : ""),
+      cheerBets(byKey.get(r.o.spec.key), P))));
+  }
+
+  // "BUF ML −110, +$50/−$25 · 3-lg +595: PHI ML, o44.5, Hurts ATD, +$62/−$10 · +2 more worth +$40/−$25"
+  // Biggest win first; about two lines' worth, then the rest summed (a parlay's $ isn't summed: it needs its other legs too).
+  const odds = (o) => (o == null ? "" : o > 0 ? "+" + o : "−" + Math.abs(o));
+  const wl = (b) => `+$${Math.round(b.payout - b.cash).toLocaleString("en-US")}/−$${Math.round(b.cash).toLocaleString("en-US")}`;
+  function legShort(l) {
+    const team = l.side === "home" ? l.home : l.side === "away" ? l.away : "";
+    const last = (l.player || "").split(" ").filter((w) => !/^(jr|sr|ii|iii|iv|v)\.?$/i.test(w)).slice(-1)[0] || "";
+    switch (l.kind) {
+      case "ml": return l.lead_by ? `${team} up ${l.lead_by}` : `${team} ML`;
+      case "spread": return `${team} ${fmtLine(Number(l.line))}`;
+      case "total": return `${l.side === "under" ? "u" : "o"}${l.line}`;
+      case "team_total": return `${team} ${(l.ou || "over")[0]}${l.line}`;
+      case "prop": return l.stat === "td" && Number(l.line) === 0.5 && (l.ou || "over") === "over" ? `${last} ATD` : `${last} ${(l.ou || "over")[0]}${l.line} ${STAT_LABEL[l.stat] || l.stat}`;
+      default: return (l.desc || "other").slice(0, 24);
+    }
+  }
+  function cheerBets(list, P) {
+    if (!list || !list.length) return null;
+    // Parlay legs carry their own odds (leg `odds`, logged since 10/12/2026); the parlay's total odds show only when a leg lacks them.
+    const legOdds = (l) => legShort(l) + (num(l.odds) != null ? " " + odds(num(l.odds)) : "");
+    const items = list.map((b) => { const m = P.meta.get(b.id), legs = m.legs || [], o = odds(num(m.odds));
+      const allLegOdds = legs.every((l) => num(l.odds) != null);
+      return { b, parlay: legs.length > 1, text: legs.length > 1 ? `${legs.length}-lg${o && !allLegOdds ? " " + o : ""}: ${legs.map(legOdds).join(", ")}, ${wl(b)}` : `${legs.length ? legShort(legs[0]) : m.bet}${o ? " " + o : ""}, ${wl(b)}` }; })
+      .sort((x, y) => (y.b.payout - y.b.cash) - (x.b.payout - x.b.cash));
+    const shown = [];
+    let len = 0;
+    for (const it of items) { if (shown.length && (shown.length >= 4 || len + it.text.length > 130)) break; shown.push(it); len += it.text.length + 3; }
+    const rest = items.slice(shown.length), parts = shown.map((x) => x.text);
+    if (rest.length) {
+      const flat = rest.filter((x) => !x.parlay), np = rest.length - flat.length;
+      const win = flat.reduce((a, x) => a + x.b.payout - x.b.cash, 0), lose = flat.reduce((a, x) => a + x.b.cash, 0);
+      parts.push(`+${rest.length} more` + (np && flat.length ? ` (${np} parlay${np > 1 ? "s" : ""})` : np ? ` parlay${np > 1 ? "s" : ""}` : "")
+        + (flat.length ? ` worth +$${Math.round(win).toLocaleString("en-US")}/−$${Math.round(lose).toLocaleString("en-US")}` : ""));
+    }
+    return h("span", { class: "cb num" }, parts.join(" · "));
   }
 
   function betRow(b, pb) {
@@ -824,7 +973,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const extra = unplacedAsBets(cp);
     let nums = (planned != null ? `Planned ${pctS(planned)} → ` : "") + (res ? `now ${pctS(pAbove(res, line))} with placed bets` : "nothing placed yet");
     if (extra.length) {
-      const P2 = build(extra);
+      const P2 = build(extra, "all");
       const r2 = M.run({ games: P2.games, bets: P2.bets, n: 20000, seed: 7 });
       nums += ` · with the ${extra.length} unplaced: ${pctS(pAbove(r2, line))}`;
     }
@@ -900,8 +1049,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
 
   // ---------- status ----------
-  function setFresh(kind, text) { $("#dot").className = "dot " + (kind || ""); $("#freshText").textContent = text; }
-  function banner(kind, text) { const b = $("#banner"); if (!text) { b.hidden = true; return; } b.className = "banner" + (kind === "err" ? " err" : ""); b.textContent = text; b.hidden = false; }
+  // The header status is also the page's only notice: green "Live", amber when ESPN is partly down, red when loading failed.
+  // `more` is the longer explanation, shown on hover/long-press.
+  function setFresh(kind, text, more) { $("#dot").className = "dot " + (kind || ""); const t = $("#freshText"); t.textContent = text; t.title = more || ""; }
 
   // ---------- loop ----------
   let busy = false;
@@ -915,20 +1065,25 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       if (linesMax != null && !REPLAY && linesAgeMin() >= linesMax) { try { await loadLines(true); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
       await loadSummaries();
       st.loaded = true; st.lastAt = Date.now();
-      const live = [...st.games.values()].some((g) => g.state === "in");
-      setFresh(REPLAY ? "" : "live", (REPLAY ? "Replay" : "Updated " + clock(st.lastAt)) + (live && !REPLAY ? " · games live" : ""));
-      banner(st.espnErr ? "warn" : null, st.espnErr ? "ESPN didn't answer for some games; their bets use pregame numbers until it does." : null);
-      if (REPLAY) banner("warn", `Replay: every bet on ${fmtDay(toT(REPLAY))} treated as open at kickoff, to check the model. Remove ?replay= from the address for live.`);
+      if (!st.espnErr) st.espnAt = st.lastAt;
+      if (REPLAY) setFresh("", `Replay · every bet open at kickoff`, `Every bet on ${fmtDay(toT(REPLAY))} treated as open at kickoff, to check the model. Remove ?replay= from the address for live.`);
+      else if (st.espnErr) setFresh("stale", st.espnAt ? `Couldn't reach ESPN · showing scores from ${clock(st.espnAt)}` : "Couldn't reach ESPN · using pregame numbers",
+        "ESPN didn't answer for some games; their bets use the last scores (or pregame numbers) until it does.");
+      else setFresh("live", "Live · updated " + clock(st.lastAt));
       render();
     } catch (e) {
-      setFresh("stale", st.loaded ? "Updated " + clock(st.lastAt) : "Error");
-      banner("err", "Couldn't load: " + e.message + (st.loaded ? ". Showing the last data." : ". The free database may be paused; it wakes on the next visit to the History page, then reload."));
+      setFresh("err", st.loaded ? `Couldn't load · showing data from ${clock(st.lastAt)}` : "Couldn't load · database may be paused",
+        "Couldn't load: " + e.message + (st.loaded ? "" : ". The free database pauses after a week idle; open the History page to wake it, then reload."));
     } finally { busy = false; }
   }
 
   document.querySelectorAll("[data-mode]").forEach((b) => b.addEventListener("click", () => {
     mode = b.dataset.mode; try { localStorage.setItem("liveMode", mode); } catch {} render();
   }));
+  $("#leagues").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-league]"); if (!b) return;
+    league = b.dataset.league; try { localStorage.setItem("liveLeague", league); } catch {} render();
+  });
   $("#linesBtn").addEventListener("click", async () => {
     const btn = $("#linesBtn"); btn.disabled = true; btn.textContent = "Refreshing…";
     try { await loadLines(true); st.linesErr = null; } catch (e) { st.linesErr = e.message; }
