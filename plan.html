@@ -181,7 +181,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   const PLAN_COLS = "id,created_at,plan_date,scope,target_p_black,target_on,withdrawn,banked_day,banked_week,p_black_day,p_black_week,ev,summary,triggers";
   const COLS = "id,bet,game,settle_date,league,promo,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct,fair_win_pct,ev,to_pay,refund_on_loss,legs";
   const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev,terms_read";
-  const DAY = 86400000, UNDO_MS = 10 * 60000, POLL_MS = 60000;
+  const DAY = 86400000, UNDO_MS = 10 * 60000, POLL_MS = 60000, IDLE_MS = 30 * 60000;
   const ESPN = LiveCore.ESPN, FOOTBALL = LiveCore.FOOTBALL;
   const WEEK_ANCHORS = LiveCore.WEEK_ANCHORS.map(toT);
   // Promo sweep: each book's promos page (on iPhone these open the app when it's installed). Novig has no web promos page.
@@ -764,8 +764,18 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   // ---------- start ----------
   render();
   refresh();
-  setInterval(() => { if (!document.hidden && !$("#placeDlg").open && !$("#pinDlg").open) refresh(); }, POLL_MS);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && Date.now() - (st.lastAt || 0) > 20000) refresh(); });
+  // Idle pause: a Mac counts a tab left open overnight as visible, so stop polling after IDLE_MS with no input; any input refreshes right away.
+  let lastInput = Date.now();
+  const idle = () => Date.now() - lastInput > IDLE_MS;
+  ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"].forEach(ev => window.addEventListener(ev, () => {
+    const was = idle(); lastInput = Date.now(); if (was) refresh();
+  }, { passive: true }));
+  setInterval(() => { if (!document.hidden && !idle() && !$("#placeDlg").open && !$("#pinDlg").open) refresh(); }, POLL_MS);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;
+    lastInput = Date.now();
+    if (Date.now() - (st.lastAt || 0) > 20000) refresh();
+  });
 })();
 </script>
 </body></html>

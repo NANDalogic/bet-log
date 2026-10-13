@@ -905,8 +905,15 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     finally { loading = false; }
   }
   load();
-  setInterval(() => { if (!document.hidden) load(); }, 60000);
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+  // Idle pause: a Mac counts a tab left open overnight as visible, so stop polling after 30 min with no input; any input reloads right away.
+  const IDLE_MS = 30 * 60000;
+  let lastInput = Date.now();
+  const idle = () => Date.now() - lastInput > IDLE_MS;
+  ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"].forEach(ev => window.addEventListener(ev, () => {
+    const was = idle(); lastInput = Date.now(); if (was) load();
+  }, { passive: true }));
+  setInterval(() => { if (!document.hidden && !idle()) load(); }, 60000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { lastInput = Date.now(); load(); } });
 })();
 </script>
 
