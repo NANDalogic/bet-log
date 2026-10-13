@@ -1,0 +1,24 @@
+# Hourly outage check for the Supabase database behind bets.nandalogic.com.
+# Reads one row from public.bets with the publishable key (public by design, same one index.html uses).
+# A timeout or non-2xx response fails the run, and GitHub emails the repo owner about failed scheduled runs.
+name: db-health
+
+on:
+  schedule:
+    - cron: '17 * * * *'   # hourly at :17 UTC (GitHub may start it a few minutes late)
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Read one bet through PostgREST
+        env:
+          URL: https://pqkteawpnislalfxxtvc.supabase.co/rest/v1/bets?select=id&limit=1
+          KEY: sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG
+        run: |
+          curl -fsS -m 30 --retry 2 --retry-delay 20 --retry-all-errors \
+            -H "apikey: $KEY" "$URL" -o body.json
+          echo "Response: $(cat body.json)"
+          grep -q '"id"' body.json || { echo "No bet row came back"; exit 1; }
