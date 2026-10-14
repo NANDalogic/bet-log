@@ -66,7 +66,7 @@
     for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (poisAtLeast(m, k) < pOver) lo = m; else hi = m; }
     return (lo + hi) / 2;
   }
-  const COUNT_STATS = new Set(["td", "pass_tds"]);
+  const COUNT_STATS = new Set(["td", "pass_tds", "goals", "assists", "points"]);
   // P(prop leg wins) given the stat so far x and the share of the game left f. Pregame: the leg's own fair p.
   function propProb(leg, x, f, post) {
     const line = Number(leg.line ?? 0.5), over = (leg.ou || "over") === "over";
@@ -311,6 +311,8 @@
     const period = stt.period || 0, clk = Number(stt.clock || 0);
     let secLeft = null;
     if (FOOTBALL.has(league) && state === "in") secLeft = period <= 4 ? (4 - period) * 900 + clk : 0;
+    // NHL scoreboard clock counts down; OT counts only its own minutes, a shootout (period 5) is over for props.
+    if (league === "NHL" && state === "in") secLeft = period <= 3 ? (3 - period) * 1200 + clk : period === 4 ? clk : 0;
     const prob = c.situation?.lastPlay?.probability;
     return {
       id: e.id, league, date: e.date, state, detail: stt.type?.shortDetail || "",
@@ -335,6 +337,7 @@
       o.pass_yds = o.passingYards ?? 0; o.rush_yds = o.rushingYards ?? 0; o.rec_yds = o.receivingYards ?? 0;
       o.rush_rec_yds = o.rush_yds + o.rec_yds; o.receptions = o.receptions ?? 0; o.pass_tds = o.passingTouchdowns ?? 0;
       o.td = (o.rushingTouchdowns ?? 0) + (o.receivingTouchdowns ?? 0);
+      if (o.goals != null) o.points = o.goals + (o.assists ?? 0);   // NHL skaters
     }
     const maxLead = { home: 0, away: 0 };
     for (const p of d.scoringPlays || []) { maxLead.home = Math.max(maxLead.home, p.homeScore - p.awayScore); maxLead.away = Math.max(maxLead.away, p.awayScore - p.homeScore); }
@@ -352,6 +355,7 @@
   // ---------- point in time (ESPN play-by-play) ----------
   // ESPN game summary -> [{t, home, away, secLeft, wp, detail}] per play, in time order (wallclock). NFL/CFB/MLB carry ESPN's
   // win probability per play; NHL has scores only (the model then keeps its pregame line until the game ends).
+  // NHL play clocks count UP (time elapsed in the period), unlike football's.
   function parseTimeline(d, league) {
     const plays = (d.drives?.previous || []).flatMap((dr) => dr.plays || []).concat(d.plays || []);
     const wpById = new Map((d.winprobability || []).map((w) => [String(w.playId), w.homeWinPercentage]));
@@ -361,7 +365,9 @@
       if (!p.wallclock) continue;
       if (wpById.has(String(p.id))) wp = wpById.get(String(p.id));
       const period = p.period?.number || 0, [mm, ss] = String(p.clock?.displayValue || "0:00").split(":").map(Number);
-      const secLeft = FOOTBALL.has(league) ? (period <= 4 ? (4 - period) * 900 + (mm || 0) * 60 + (ss || 0) : 0) : null;
+      const el = (mm || 0) * 60 + (ss || 0);
+      const secLeft = FOOTBALL.has(league) ? (period <= 4 ? (4 - period) * 900 + el : 0)
+        : league === "NHL" ? (period <= 3 ? (3 - period) * 1200 + Math.max(0, 1200 - el) : period === 4 ? Math.max(0, 300 - el) : 0) : null;
       const detail = league === "MLB" ? `${p.period?.type || ""} ${period}`.trim() : `${league === "NHL" ? "P" : "Q"}${period} ${p.clock?.displayValue || ""}`.trim();
       out.push({ t: Date.parse(p.wallclock), home: num(p.homeScore) ?? 0, away: num(p.awayScore) ?? 0, secLeft, wp, detail });
     }
