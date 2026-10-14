@@ -124,6 +124,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 dialog h3{margin:0 0 4px;font-size:17px}
 dialog form{display:flex;flex-direction:column;gap:12px}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fields label.wide{grid-column:1 / -1}
 .fields label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
 .fields input,.pinrow input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:17px;background:var(--page);min-width:0;width:100%}
 .oddsrow{display:flex;gap:6px}
@@ -156,6 +157,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
 <dialog id="placeDlg"><form method="dialog" id="placeForm">
   <div><h3 id="pdTitle"></h3><p class="sub" id="pdSlip"></p></div>
   <div class="fields">
+    <label class="wide" id="pdCentsRow" hidden>Kalshi price now (¢, before fee) — sets odds and stake to lock<input id="pdCents" inputmode="decimal" autocomplete="off"></label>
     <label>Odds (American)<div class="oddsrow"><button type="button" class="btn" id="pdSign" aria-label="Flip sign">±</button><input id="pdOdds" inputmode="numeric" autocomplete="off"></div></label>
     <label>Stake ($)<input id="pdStake" inputmode="decimal" autocomplete="off"></label>
   </div>
@@ -393,6 +395,35 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     return { pay, ev };
   }
 
+  // Lock hedges (bet-sim lock mode): an item with locks_ord hedges the pick with that ord completely.
+  // Kalshi: buy one $1 contract per $1 the pick pays; odds/min_odds are all-in prices (fee included).
+  const KALSHI_K = 0.07;
+  const kalshiAllIn = (c) => c + KALSHI_K * c * (1 - c);
+  const kalshiRaw = (a) => ((1 + KALSHI_K) - Math.sqrt((1 + KALSHI_K) ** 2 - 4 * KALSHI_K * a)) / (2 * KALSHI_K);
+  const oddsOfDec = (d) => d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
+  const isKalshi = (i) => /kalshi/i.test(i.book || "");
+  function lockPick(cp, i) {
+    if (!cp || i.locks_ord == null) return null;
+    const p = cp.items.find((x) => x.ord === i.locks_ord); if (!p) return null;
+    const b = p.bet_id && betById(p.bet_id);   // once the pick is logged, lock against what it really pays
+    return { item: p, state: itemState(p), pay: num(b ? b.to_pay : p.payout), cash: num(b ? b.cash_risked : p.cash) ?? 0 };
+  }
+  // P/L of pick + hedge in each outcome, for a hedge at these odds/stake.
+  function lockResult(pk, odds, stake) {
+    if (!pk || pk.pay == null || odds == null || !stake) return null;
+    const ret = stake * decOf(odds);
+    return { ifPick: pk.pay - pk.cash - stake, ifHedge: ret - pk.cash - stake, even: Math.abs(ret - pk.pay) < 0.5 };
+  }
+  function lockText(r) {
+    return r.even ? `locks ${money(Math.min(r.ifPick, r.ifHedge))} either way` : `${money(r.ifPick)} if the pick wins, ${money(r.ifHedge)} if not`;
+  }
+  function hedgeNow(cp, i) {   // the hedge as it stands: placed bet, else re-sized from the pick's real payout
+    const b = i.bet_id && betById(i.bet_id), pk = lockPick(cp, i), o = num(b ? b.odds : oddsOf(i));
+    if (!pk || o == null) return null;
+    const stake = b ? num(b.stake) : pk.pay / decOf(o);
+    return { pk, odds: o, stake, r: lockResult(pk, o, stake) };
+  }
+
   // Groups: a main pick plus its alternates (alt_of_ord = the main's ord). The "active" pick is whichever got placed, else the main.
   function groupsOf(items) {
     const ords = new Set(items.map((i) => i.ord));
@@ -501,8 +532,16 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     else kids.push(stat("Chance in black", pctS(mo.S.pBlack), "", `exp. ${money0(mo.S.ev)}`),
       stat("Best case", money0(mo.E.best), cls(mo.E.best), pctFine(mo.E.pBest) + " chance"),
       stat("Worst case", money0(mo.E.worst), cls(mo.E.worst), pctFine(mo.E.pWorst) + " chance"));
-    kids.splice(1, 0, stat("EV placed", money0(evPlaced), cls(evPlaced), cp ? `of ${money0(evPlan)}` : ""));
+    // Lock plan: every pick has a lock hedge (locks_ord), so the guaranteed total replaces the EV tile.
+    const live = groupsOf(items).filter((g) => g.state !== "skipped");
+    const locks = live.filter((g) => g.active.locks_ord != null).map((g) => ({ g, hn: hedgeNow(cp, g.active) })).filter((x) => x.hn && x.hn.r && x.hn.pk.state !== "skipped");
+    const picks = live.filter((g) => !g.active.is_hedge).length;
+    const locked = locks.reduce((x, l) => x + Math.min(l.hn.r.ifPick, l.hn.r.ifHedge), 0);
+    if (locks.length && locks.length >= picks)
+      kids.splice(1, 0, stat("Guaranteed", money0(locked), cls(locked), `${locks.filter((l) => l.g.state === "placed").length} of ${locks.length} hedges in`));
+    else kids.splice(1, 0, stat("EV placed", money0(evPlaced), cls(evPlaced), cp ? `of ${money0(evPlan)}` : ""));
     const more = [];
+    if (locks.length && locks.length < picks) more.push(`${locks.length} of ${picks} picks locked: ${money0(locked)} guaranteed from those`);
     more.push(`${placedItems.length} of ${groupsOf(items).filter((g) => g.state !== "skipped").length} placed`);
     if (mo.rest) more.push(`with the ${mo.rest.n} still open: ${pctS(mo.rest.S.pBlack)} in the black, exp. ${money0(mo.rest.S.ev)}`);
     if (mo.n && mo.n > placedItems.length) more.push(`includes ${mo.n - placedItems.length} other bet${mo.n - placedItems.length === 1 ? "" : "s"} that day`);
@@ -513,7 +552,8 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     box.hidden = !cp;
     if (!cp) return;
     const p = cp.plan, target = num(p.target_p_black), trig = (p.triggers || []).length;
-    const head = [`Made ${fmtWhen(p.created_at)}`, target != null ? `target ≥${pctS(target)} in the black ${p.scope === "week" ? "for the week" : "that day"}` : "max EV"];
+    const lockPlan = cp.items.some((i) => i.locks_ord != null);
+    const head = [`Made ${fmtWhen(p.created_at)}`, lockPlan ? "lock: every pick hedged to a guaranteed result" : target != null ? `target ≥${pctS(target)} in the black ${p.scope === "week" ? "for the week" : "that day"}` : "max EV"];
     if (num(p.p_black_day) != null) head.push(`plan said ${pctS(num(p.p_black_day))} for the day`);
     box.replaceChildren(h("details", { open: store.get("planNotesOpen", false) || null, ontoggle: (e) => store.set("planNotesOpen", e.target.open) },
       h("summary", {}, "Claude's notes"),
@@ -551,7 +591,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
       if (c.groups.some((g) => st.newKeys.has(cp.plan.plan_date + "|" + itemKey(g.main)) || g.alts.some((a) => st.newKeys.has(cp.plan.plan_date + "|" + itemKey(a))))) flags.push(h("span", { class: "pill new" }, "New"));
       const det = h("details", { class: "book" + (c.done ? " done" : ""), open: (openState[key] ?? !c.done) || null,
         ontoggle: (e) => { const s = store.get("planBookOpen", {}); s[key] = e.target.open; store.set("planBookOpen", s); } },
-        h("summary", {}, h("span", { class: "bk" }, c.book), h("span", { class: "bn" }, `· ${c.count} promo${c.count === 1 ? "" : "s"}`),
+        h("summary", {}, h("span", { class: "bk" }, c.book), h("span", { class: "bn" }, `· ${c.count} ${c.groups.every((g) => g.main.is_hedge) ? "hedge" : "promo"}${c.count === 1 ? "" : "s"}`),
           h("span", { class: "bev num " + cls(c.ev) }, money0(c.ev) + " EV"), h("span", { class: "bflags" }, ...flags)),
         h("div", { class: "items" }, ...sortGroups(c.groups).map((g) => groupEl(cp, g))));
       return det;
@@ -589,8 +629,18 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     else if (s === "skipped") meta.push(h("span", { class: "pill" }, "Skipped"));
     else if (s === "missed") meta.push(h("span", { class: "pill warn" }, g && g.state === "post" ? "Game over" : "Started"));
     else if (g) meta.push(h("span", {}, "· " + fmtWhen(g.date)));
-    if (i.is_hedge) meta.push(h("span", { class: "pill" }, "Hedge"));
+    const hn = i.locks_ord != null ? hedgeNow(cp, i) : null;
+    if (i.is_hedge) meta.push(h("span", { class: "pill" }, hn ? "Lock" : "Hedge"));
     if (st.newKeys.has(cp.plan.plan_date + "|" + itemKey(i))) meta.push(h("span", { class: "pill new" }, "New"));
+    let lockLine = null;
+    if (hn) {
+      const pickTxt = hn.pk.item.label.includes(": ") ? hn.pk.item.label.split(": ").slice(1).join(": ") : hn.pk.item.label;
+      const floor = num(i.min_odds), maxC = floor != null && isKalshi(i) ? kalshiRaw(1 / decOf(floor)) * 100 : null;
+      const how = isKalshi(i) ? `buy ${Math.round(hn.pk.pay)} contracts${maxC != null ? ` at ≤ ${maxC.toFixed(0)}¢` : ""}` : `${money(hn.stake, false)} at ${amer(hn.odds)}${floor != null ? ` (≥ ${amer(floor)})` : ""}`;
+      const txt = hn.pk.state === "skipped" ? `Its pick (${pickTxt}) was skipped: use the hedge under that pick's alternate instead.`
+        : `Locks ${pickTxt}${hn.pk.state === "placed" ? " (logged)" : ""}: ${how} → ${hn.r ? lockText(hn.r) : "—"}`;
+      lockLine = h("span", { class: "islip" }, txt);
+    }
 
     const act = [];
     if (i.slip) act.push(h("button", { type: "button", class: "link", onclick: (e) => copySlip(i.slip, e.target) }, "Copy slip"));
@@ -606,6 +656,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
       h("div", { class: "ib" },
         h("div", { class: "ih" }, h("span", { class: "il" }, (isAlt ? "Alt: " : "") + i.label), h("span", { class: "iev num " + cls(itemEV(i)) }, money(itemEV(i)))),
         i.slip ? h("span", { class: "islip" }, i.slip) : null,
+        lockLine,
         h("div", { class: "imeta" }, ...meta),
         h("div", { class: "iact" }, ...act)));
   }
@@ -710,23 +761,48 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     $("#pdSlip").textContent = [i.book, i.slip, isBonus(i) && !/bonus/i.test(i.slip || "") ? "bonus bet" : null].filter(Boolean).join(" · ");
     $("#pdOdds").value = o == null ? "" : amer(o);
     $("#pdStake").value = s == null ? "" : String(s);
+    // A lock hedge is sized from what its pick really pays; on Kalshi, type the price you see and the rest follows.
+    const pk = lockPick(currentPlan(), i);
+    $("#pdCentsRow").hidden = !(pk && isKalshi(i));
+    $("#pdCents").value = pk && isKalshi(i) && o != null ? (kalshiRaw(1 / decOf(o)) * 100).toFixed(1) : "";
+    if (pk && pk.pay != null && o != null) $("#pdStake").value = (pk.pay / decOf(o)).toFixed(2);
     updatePreview();
     $("#placeDlg").showModal();
   }
+  function lockResize(fromCents) {
+    const i = placing, pk = i && lockPick(currentPlan(), i);
+    if (!pk || pk.pay == null) return;
+    let o;
+    if (fromCents) {
+      const c = Number($("#pdCents").value.replace(/[^\d.]/g, "")) / 100;
+      if (!(c > 0 && c < 1)) return;
+      o = oddsOfDec(1 / kalshiAllIn(c));
+      $("#pdOdds").value = amer(o);
+      $("#pdStake").value = (pk.pay * kalshiAllIn(c)).toFixed(2);
+    } else if ((o = readOdds()) != null) {
+      $("#pdStake").value = (pk.pay / decOf(o)).toFixed(2);
+      if (isKalshi(i)) $("#pdCents").value = (kalshiRaw(1 / decOf(o)) * 100).toFixed(1);
+    }
+  }
+  $("#pdCents").addEventListener("input", () => { lockResize(true); updatePreview(); });
   function readOdds() { const v = $("#pdOdds").value.replace(/[^\d+-]/g, ""); const n = Number(v); return v && Number.isFinite(n) && Math.abs(n) >= 100 ? Math.round(n) : null; }
   function readStake() { const n = Number($("#pdStake").value.replace(/[$,\s]/g, "")); return Number.isFinite(n) && n > 0 ? n : null; }
   function updatePreview() {
     const i = placing; if (!i) return;
     const o = readOdds(), s = readStake(), q = s ? quote(i, o, s) : null;
-    $("#pdPreview").textContent = q ? `To pay ${money(q.pay, false)}${q.ev != null ? ` · EV ${money(q.ev)}` : ""}${num(i.odds) == null && o != null && o !== oddsOf(i) ? " · payout not recalculated (older plan)" : ""}` : "Enter the stake.";
+    const pk = lockPick(currentPlan(), i), lr = pk && s ? lockResult(pk, o, s) : null;
+    $("#pdPreview").textContent = lr
+      ? `${isKalshi(i) ? `Buy ${Math.round(pk.pay)} contracts · ` : ""}to pay ${money(s * decOf(o), false)} · with the pick: ${lockText(lr)}`
+      : q ? `To pay ${money(q.pay, false)}${q.ev != null ? ` · EV ${money(q.ev)}` : ""}${num(i.odds) == null && o != null && o !== oddsOf(i) ? " · payout not recalculated (older plan)" : ""}` : "Enter the stake.";
     const floor = num(i.min_odds), w = $("#pdWarn");
-    w.hidden = !(floor != null && o != null && decOf(o) < decOf(floor) - 1e-9);
-    w.textContent = `Below the plan's floor (${amer(floor)}). The plan says skip it at this price; log it only if you placed it anyway.`;
+    w.hidden = !((floor != null && o != null && decOf(o) < decOf(floor) - 1e-9) || (lr && Math.min(lr.ifPick, lr.ifHedge) < 0));
+    w.textContent = pk ? "At this price the lock loses money. Skip it, or log it only if you already placed it."
+      : `Below the plan's floor (${amer(floor)}). The plan says skip it at this price; log it only if you placed it anyway.`;
     $("#pdGo").disabled = !s;
   }
-  $("#pdOdds").addEventListener("input", updatePreview);
+  $("#pdOdds").addEventListener("input", () => { lockResize(false); updatePreview(); });
   $("#pdStake").addEventListener("input", updatePreview);
-  $("#pdSign").addEventListener("click", () => { const o = readOdds(); if (o != null) { $("#pdOdds").value = amer(-o); updatePreview(); } });
+  $("#pdSign").addEventListener("click", () => { const o = readOdds(); if (o != null) { $("#pdOdds").value = amer(-o); lockResize(false); updatePreview(); } });
   $("#pdCancel").addEventListener("click", () => { $("#placeDlg").close(); placing = null; });
   $("#placeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
