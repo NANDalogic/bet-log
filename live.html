@@ -140,7 +140,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   <section class="card" id="settledCard" hidden><details id="settledBox"><summary id="settledSum">Settled earlier</summary><div id="settled"></div></details></section>
   <div class="foot">
     <div class="lines"><span id="linesText">Game lines: loading…</span><button class="btn" type="button" id="linesBtn">Refresh lines</button></div>
-    <span>Model: each game's pregame fair line (sharp consensus from The Odds API), updated with ESPN's live score, clock and win probability; props use ESPN box scores (estimates). Different games are independent. Bonus-bet refunds count only in "with refunds", at 70%.</span>
+    <span>Model: each game's pregame fair line (sharp consensus from The Odds API), updated with ESPN's live score, clock and win probability. Football and NHL simulate one final score per game, so every bet on a game reads the same result (NHL goal props share their team's goals); other sports are win/lose. Props use ESPN box scores (estimates). Different games are independent. Bonus-bet refunds count only in "with refunds", at 70%.</span>
   </div>
 </div>
 
@@ -157,7 +157,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   const DAY = 86400000;
   const ESPN = { NFL: "football/nfl", CFB: "football/college-football", MLB: "baseball/mlb", NHL: "hockey/nhl", NBA: "basketball/nba", NCAAB: "basketball/mens-college-basketball" };
   const ESPN_GROUPS = { CFB: "&groups=80", NCAAB: "&groups=50" };
-  const FOOTBALL = new Set(["NFL", "CFB"]);
+  const SCORED = LiveCore.SCORED;   // leagues with a score model
   const STAT_LABEL = { pass_yds: "pass yds", rush_yds: "rush yds", rec_yds: "rec yds", rush_rec_yds: "rush+rec yds", receptions: "receptions", pass_tds: "pass TDs", td: "TD" };
   const params = new URLSearchParams(location.search);
   const REPLAY = /^\d{4}-\d\d-\d\d$/.test(params.get("replay") || "") ? params.get("replay") : null;
@@ -295,7 +295,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
         if (!g) continue;
         const live = !REPLAY && g.state !== "pre";
         if ((l.kind === "prop" || l.lead_by) && live) want.set(g.id, g);
-        if (FOOTBALL.has(g.league) && !st.summaries.has(g.id) && !lineFor(g)) want.set(g.id, g);
+        if (SCORED.has(g.league) && !st.summaries.has(g.id) && !lineFor(g)) want.set(g.id, g);
       }
     }
     await Promise.allSettled([...want.values()].map(async (g) => {
@@ -676,7 +676,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       return (gx ? Date.parse(gx.date) : 9e15) - (gy ? Date.parse(gy.date) : 9e15);
     });
     for (const key of order) {
-      const ids = P.gameBets.get(key).filter((id) => REPLAY || P.meta.get(id).result === "Pending");
+      const ids = P.gameBets.get(key).filter((id) => REPLAY ? P.meta.get(id).result !== "Void" : P.meta.get(id).result === "Pending");
       if (!ids.length) continue;
       const g = st.games.get(key);
       let title = key === "multi" ? "Across games" : key === "none" ? "Other bets" : g ? `${g.away} @ ${g.home}` : P.meta.get(ids[0]).game;
@@ -689,7 +689,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       const src = P.lineSrc[key];
       cards.push(h("section", { class: "card game" },
         h("div", { class: "gh" }, h("span", { class: "gt" }, title), h("span", { class: "gs num" }, status)),
-        src && src.length && g && FOOTBALL.has(g.league) ? h("p", { class: "sub" }, "Line from " + src.join(" + ")) : null,
+        g && SCORED.has(g.league) ? h("p", { class: "sub" }, src && src.length ? "Line from " + src.join(" + ") : "No line found: league-average scoring") : null,
         h("div", {}, ...ids.map((id) => betRow(P.meta.get(id), pb.get(id))))));
     }
     $("#games").replaceChildren(...cards);

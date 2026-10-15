@@ -184,7 +184,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   const COLS = "id,bet,game,settle_date,league,promo,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct,fair_win_pct,ev,to_pay,refund_on_loss,legs";
   const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev,terms_read";
   const DAY = 86400000, UNDO_MS = 10 * 60000, POLL_MS = 60000, IDLE_MS = 30 * 60000;
-  const ESPN = LiveCore.ESPN, FOOTBALL = LiveCore.FOOTBALL;
+  const ESPN = LiveCore.ESPN;
   const WEEK_ANCHORS = LiveCore.WEEK_ANCHORS.map(toT);
   // Promo sweep: each book's promos page (on iPhone these open the app when it's installed). Novig has no web promos page.
   const BOOKS = [
@@ -314,7 +314,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
       const g = findGame(l);
       if (!g) continue;
       if ((l.kind === "prop" || l.lead_by) && g.state !== "pre") want.set(g.id, g);
-      if (FOOTBALL.has(g.league) && !st.summaries.has(g.id) && !C.lineFor(g)) want.set(g.id, g);
+      if (LiveCore.SCORED.has(g.league) && !st.summaries.has(g.id) && !C.lineFor(g)) want.set(g.id, g);
     }
     await Promise.allSettled([...want.values()].map(async (g) => st.summaries.set(g.id, LiveCore.parseSummary(await getJSON(LiveCore.summaryUrl(g))))));
   }

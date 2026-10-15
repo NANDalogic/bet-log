@@ -4,8 +4,9 @@
 // copies this file into the function). No DOM; sets globalThis.LiveModel and globalThis.LiveCore.
 
 // ===================== model =====================
-// Pure simulation model (no DOM). Port of bet-sim's football score model (betsim.py fit_football/simulate),
-// plus live conditioning on score/clock/ESPN win probability. Exposed as window.LiveModel.
+// Pure simulation model (no DOM). Port of bet-sim's football and hockey score models (betsim.py fit_football/simulate,
+// fit_hockey/simulate_hockey/goals_mask), plus live conditioning on score/clock (and ESPN win probability for football).
+// Other sports are win/lose only. Exposed as window.LiveModel.
 (function (root) {
   function erf(x) {   // Abramowitz–Stegun 7.1.26 (error < 1.5e-7)
     const s = x < 0 ? -1 : 1; x = Math.abs(x);
@@ -60,6 +61,96 @@
     return { H, A, f };
   }
 
+  // ---------- hockey (NHL): port of betsim fit_hockey / simulate_hockey / goals_mask ----------
+  // Regulation goals per team ~ Poisson(rate × F), F ~ Gamma(1/disp, disp) a shared scoring factor for the night.
+  // A regulation tie goes to an OT goal (OT_P, split by the teams' rates) or a shootout (winner +1 on the final score,
+  // but no player gets a goal). Regular-season rules (5-min OT, shootout); playoff OT isn't modelled.
+  const OT_P = 0.6, DISP = 0.05;
+  function gammaDraw(R, k, theta) {   // Marsaglia–Tsang (shape k >= 1)
+    const d = k - 1 / 3, c = 1 / Math.sqrt(9 * d);
+    for (;;) {
+      let x, v; do { x = R.n(); v = 1 + c * x; } while (v <= 0);
+      v = v * v * v; const u = R.u();
+      if (u < 1 - 0.0331 * x * x * x * x || Math.log(u) < 0.5 * x * x + d * (1 - v + Math.log(v))) return d * v * theta;
+    }
+  }
+  function poisDraw(R, lam) { if (!(lam > 0)) return 0; const u = R.u(); let k = 0, p = Math.exp(-lam), c = p; while (u > c && k < 60) { k++; p *= lam / k; c += p; } return k; }
+  function binomDraw(R, T, s) { let k = 0; for (let j = 0; j < T; j++) if (R.u() < s) k++; return k; }
+  let hockeyF = null;   // 400 evenly spaced quantiles of the scoring factor, mean exactly 1 (as betsim)
+  function factorQuantiles() {
+    if (hockeyF) return hockeyF;
+    const R = rng(12345), d = Array.from({ length: 40000 }, () => gammaDraw(R, 1 / DISP, DISP)).sort((a, b) => a - b);
+    const q = []; for (let i = 50; i < d.length; i += 100) q.push(d[i]);
+    const m = q.reduce((a, b) => a + b, 0) / q.length;
+    return (hockeyF = q.map((x) => x / m));
+  }
+  function poisPmf(lam, kmax) { const p = new Float64Array(kmax + 1); p[0] = Math.exp(-lam); for (let k = 1; k <= kmax; k++) p[k] = p[k - 1] * lam / k; return p; }
+  // P(home wins incl. OT/shootout), P(final total > line), averaged over the scoring factor.
+  function hockeyProbs(lh, la, line, F, otP) {
+    const qh = otP * lh / (lh + la) + (1 - otP) * 0.5, K = 16;
+    let pHome = 0, pOver = 0;
+    for (const f of F) {
+      const ph = poisPmf(lh * f, K), pa = poisPmf(la * f, K);
+      for (let i = 0; i <= K; i++) for (let j = 0; j <= K; j++) {
+        const x = ph[i] * pa[j];
+        if (i > j) pHome += x; else if (i === j) pHome += qh * x;
+        if (i + j + (i === j ? 1 : 0) > line) pOver += x;   // OT goal / shootout winner adds 1 to the total
+      }
+    }
+    return [pHome / F.length, pOver / F.length];
+  }
+  // Regulation goal rates (home, away) that reproduce the 2-way ML and the total's over price. No line → league average.
+  const hockeyFits = new Map();
+  function fitHockey(L) {
+    const ml = clamp(L.home_ml_p ?? 0.5, 0.03, 0.97), line = L.total ?? 6, over = clamp(L.total != null ? L.over_p ?? 0.5 : 0.5, 0.03, 0.97);
+    const key = `${ml}|${line}|${over}`;
+    if (hockeyFits.has(key)) return hockeyFits.get(key);
+    const F = factorQuantiles();
+    let mu = line, r = 0.5;
+    for (let it = 0; it < 30; it++) {
+      const mu0 = mu, r0 = r;
+      let lo = 0.05, hi = 0.95;
+      for (let k = 0; k < 40; k++) { r = (lo + hi) / 2; if (hockeyProbs(mu * r, mu * (1 - r), line, F, OT_P)[0] < ml) lo = r; else hi = r; }
+      lo = 1; hi = 14;
+      for (let k = 0; k < 40; k++) { mu = (lo + hi) / 2; if (hockeyProbs(mu * r, mu * (1 - r), line, F, OT_P)[1] < over) lo = mu; else hi = mu; }
+      if (Math.abs(mu - mu0) < 1e-5 && Math.abs(r - r0) < 1e-6) break;
+    }
+    const fit = { lh: mu * r, la: mu * (1 - r), disp: DISP, otP: OT_P, noLine: L.home_ml_p == null && L.total == null };
+    hockeyFits.set(key, fit);
+    return fit;
+  }
+  // Final scores (H/A, shootout +1 included) and player-creditable goals (GH/GA: regulation + OT) for one NHL game.
+  // live: {state, home, away, secLeft, period}. In regulation the rest of the game is Poisson × the time left; in OT
+  // (period 4) it's sudden death over the OT seconds left; in the shootout (period 5) a coin flip.
+  function simHockey(fit, live, n, R) {
+    const H = new Float32Array(n), A = new Float32Array(n), GH = new Float32Array(n), GA = new Float32Array(n);
+    if (live.state === "post") { H.fill(live.home); A.fill(live.away); GH.fill(live.home); GA.fill(live.away); return { H, A, GH, GA, f: 0, hockey: true }; }
+    const pre = live.state !== "in", per = pre ? 0 : live.period || 1, secLeft = live.secLeft ?? 0;
+    const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away;
+    const fReg = pre ? 1 : per <= 3 ? clamp(secLeft / 3600, 0, 1) : 0;
+    const otLeft = pre || per <= 3 ? 1 : per === 4 ? clamp(secLeft / 300, 0, 1) : 0;
+    const pOT = 1 - Math.pow(1 - fit.otP, otLeft), shareH = fit.lh / (fit.lh + fit.la);
+    for (let i = 0; i < n; i++) {
+      const F = fit.disp > 0 ? gammaDraw(R, 1 / fit.disp, fit.disp) : 1;
+      let gh = curH + poisDraw(R, fit.lh * F * fReg), ga = curA + poisDraw(R, fit.la * F * fReg), h = gh, a = ga;
+      if (gh === ga) {
+        if (R.u() < pOT) { if (R.u() < shareH) gh++; else ga++; h = gh; a = ga; }
+        else if (R.u() < 0.5) h = gh + 1; else a = ga + 1;
+      }
+      H[i] = h; A[i] = a; GH[i] = gh; GA[i] = ga;
+    }
+    return { H, A, GH, GA, f: pre ? 1 : clamp(secLeft / 3600, 0, 1), hockey: true, cur: { home: curH, away: curA } };
+  }
+  // Player goal share s with mean over sims of P(Binomial(T, s) > line) = pOver; T = the team's creditable goals.
+  function goalShare(T, line, pOver) {
+    const hist = new Map(); for (let i = 0; i < T.length; i++) hist.set(T[i], (hist.get(T[i]) || 0) + 1);
+    const k = Math.floor(line) + 1;
+    const pAtLeast = (s) => { let tot = 0; for (const [t, c] of hist) { let pmf = Math.pow(1 - s, t), cdf = 0; for (let j = 0; j < k && j <= t; j++) { cdf += pmf; pmf *= (t - j) / (j + 1) * s / (1 - s); } tot += c * (1 - cdf); } return tot / T.length; };
+    let lo = 1e-6, hi = 0.95;
+    for (let it = 0; it < 50; it++) { const s = (lo + hi) / 2; if (pAtLeast(s) < pOver) lo = s; else hi = s; }
+    return (lo + hi) / 2;
+  }
+
   function poisAtLeast(lam, k) { if (k <= 0) return 1; let term = Math.exp(-lam), cdf = term; for (let j = 1; j < k; j++) { term *= lam / j; cdf += term; } return clamp(1 - cdf, 0, 1); }
   function poisLam(pOver, line) {   // lambda with P(N > line) = pOver
     const k = Math.floor(line) + 1; let lo = 1e-4, hi = 20;
@@ -88,7 +179,8 @@
   }
 
   // positions: { games: {key: G}, bets: [...], n, seed, bonusValue }
-  //   G: {kind:"football"|"binary"|"none", fit, live:{state,home,away,secLeft,wp}, homeP, maxLead:{home,away}, stats:{player: {stat: x}}}
+  //   G: {kind:"football"|"hockey"|"binary"|"none", fit, live:{state,home,away,secLeft,period,wp}, homeP, maxLead:{home,away},
+//      stats:{player: {stat: x}}, playerTeam:{player: team abbreviation}, g: ESPN game}
   //   bet: {id, cash, payout, refund, fixedPL (settled) | legs:[{g, leg}] | flatP}
   // Each leg maps to a shared "outcome" (e.g. home covers -9.5), so bets on the same thing share one draw.
   function outcomeOf(g, leg, betId, i) {
@@ -110,6 +202,7 @@
     const sims = {};
     for (const [key, G] of Object.entries(pos.games)) {
       if (G.kind === "football") sims[key] = simFootball(G.fit, G.live, n, R);
+      else if (G.kind === "hockey") sims[key] = simHockey(G.fit, G.live, n, R);
       else if (G.live && G.live.state === "post") sims[key] = { H: new Float32Array(n).fill(G.live.home), A: new Float32Array(n).fill(G.live.away), f: 0 };
       else if (G.kind === "binary" && G.homeP != null) { const hw = new Uint8Array(n); for (let i = 0; i < n; i++) hw[i] = R.u() < G.homeP ? 1 : 0; sims[key] = { hw }; }
       else sims[key] = {};
@@ -117,6 +210,31 @@
     const outcomes = new Map();   // key -> {spec, v: Int8Array (1 yes, 0 no, 2 push), p, est}
     const cmpArr = (fn) => { const v = new Int8Array(n); for (let i = 0; i < n; i++) { const d = fn(i); v[i] = d > 0 ? 1 : d === 0 ? 2 : 0; } return v; };
     const drawArr = (p) => { const v = new Int8Array(n); for (let i = 0; i < n; i++) v[i] = R.u() < p ? 1 : 0; return v; };
+    // NHL player goals (betsim goals_mask): the player's goals = box score so far + a Binomial share of his team's
+    // creditable goals still to come, drawn one player after another from what's left (each goal to at most one player).
+    // The share is calibrated on the pregame game so the pregame P(over) = the leg's fair p. Team from ESPN's box score;
+    // unknown (pregame, replay) → a share of both teams' goals.
+    function hockeyGoals(spec, S, G) {
+      const nm = (spec.leg.player || "").toLowerCase(), line = Number(spec.leg.line ?? 0.5);
+      const tm = (G.playerTeam || {})[nm], side = G.g && tm === G.g.home ? "home" : G.g && tm === G.g.away ? "away" : "both";
+      if (!S.pre) S.pre = G.live && G.live.state === "in" ? simHockey(G.fit, { state: "pre" }, n, rng(11)) : S;
+      const pool = (X, i) => (side === "home" ? X.GH[i] : side === "away" ? X.GA[i] : X.GH[i] + X.GA[i]);
+      const Tpre = new Float32Array(n); for (let i = 0; i < n; i++) Tpre[i] = pool(S.pre, i);
+      const alloc = S.alloc || (S.alloc = {});
+      if (!alloc[side]) {
+        const c = S.cur || { home: 0, away: 0 }, c0 = side === "home" ? c.home : side === "away" ? c.away : c.home + c.away;
+        const left = new Int16Array(n); for (let i = 0; i < n; i++) left[i] = Math.max(0, pool(S, i) - c0);
+        alloc[side] = { left, share: 1 };
+      }
+      const team = alloc[side], sh = Math.min(goalShare(Tpre, line, spec.leg.p ?? 0.5), team.share * 0.999);
+      const x0 = ((G.stats || {})[nm] || {}).goals ?? 0, v = new Int8Array(n);
+      for (let i = 0; i < n; i++) {
+        const c = binomDraw(R, team.left[i], sh / team.share), x = x0 + c;
+        team.left[i] -= c; v[i] = x > line ? 1 : x === line ? 2 : 0;
+      }
+      team.share -= sh;
+      return v;
+    }
     function getOutcome(spec, pYes) {
       if (outcomes.has(spec.key)) return outcomes.get(spec.key);
       const S = sims[spec.g] || {}, G = pos.games[spec.g] || {};
@@ -129,7 +247,8 @@
         else if (spec.type === "tt") v = cmpArr((i) => (spec.side === "home" ? H[i] : A[i]) - spec.line);
         else if (spec.type === "lead") {
           const led = G.maxLead && G.maxLead[spec.side] >= spec.N;
-          const scale = 0.42 * Math.exp(-(spec.N - 7) / 6) * (S.f ?? 1);   // betsim heuristic, scaled by time left
+          // betsim's football heuristic for "led by N, then lost", scaled by time left. Hockey: winners only.
+          const scale = S.hockey ? 0 : 0.42 * Math.exp(-(spec.N - 7) / 6) * (S.f ?? 1);
           v = new Int8Array(n);
           for (let i = 0; i < n; i++) {
             const m = spec.side === "home" ? H[i] - A[i] : A[i] - H[i];
@@ -138,8 +257,9 @@
           est = !led;
         }
       } else if (S.hw && spec.type === "ml") { v = new Int8Array(n); for (let i = 0; i < n; i++) v[i] = S.hw[i]; }
-      if (spec.type === "prop") {
-        const st = (G.stats || {})[(spec.leg.player || "").toLowerCase()] || {};
+      if (spec.type === "prop" && spec.leg.stat === "goals" && S.hockey && G.live.state !== "post") { v = hockeyGoals(spec, S, G); est = true; }
+      else if (spec.type === "prop") {
+        const st =(G.stats || {})[(spec.leg.player || "").toLowerCase()] || {};
         const post = G.live && G.live.state === "post";
         const f = G.live && G.live.state === "in" ? (S.f ?? clamp((G.live.secLeft ?? 3600) / 3600, 0, 1)) : 1;
         const p = propProb(spec.leg, st[spec.leg.stat] ?? 0, f, post);
@@ -287,7 +407,7 @@
     return out.sort((a, b) => b.score - a.score);
   }
 
-  root.LiveModel = { ncdf, ninv, fitFootball, simFootball, propProb, run, summarize, extremes, cheer, rng, legOutcome };
+  root.LiveModel = { ncdf, ninv, fitFootball, simFootball, fitHockey, simHockey, hockeyProbs, propProb, run, summarize, extremes, cheer, rng, legOutcome };
 })(typeof window !== "undefined" ? window : globalThis);
 
 // ===================== bets + ESPN -> model inputs =====================
@@ -296,6 +416,7 @@
   const ESPN = { NFL: "football/nfl", CFB: "football/college-football", MLB: "baseball/mlb", NHL: "hockey/nhl", NBA: "basketball/nba", NCAAB: "basketball/mens-college-basketball" };
   const ESPN_GROUPS = { CFB: "&groups=80", NCAAB: "&groups=50" };
   const FOOTBALL = new Set(["NFL", "CFB"]);
+  const SCORED = new Set([...FOOTBALL, "NHL"]);   // leagues with a score model (the rest are win/lose)
   // Betting weeks run Tuesday–Monday, counted from each NFL season's opening Tuesday.
   const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"];
   function num(v) { if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; }
@@ -318,18 +439,19 @@
       id: e.id, league, date: e.date, state, detail: stt.type?.shortDetail || "",
       home: home.team.abbreviation, away: away.team.abbreviation,
       homeName: home.team.displayName, awayName: away.team.displayName,
-      homeScore: num(home.score) ?? 0, awayScore: num(away.score) ?? 0, secLeft,
+      homeScore: num(home.score) ?? 0, awayScore: num(away.score) ?? 0, secLeft, period: state === "in" ? period : null,
       wp: state === "in" && prob && prob.homeWinPercentage != null ? prob.homeWinPercentage : null,
     };
   }
 
-  // ESPN game summary -> box-score stats by lower-case player name, biggest lead each side reached, ESPN's own line.
+  // ESPN game summary -> box-score stats and team by lower-case player name, biggest lead each side reached, ESPN's own line.
   function parseSummary(d) {
-    const stats = {};
+    const stats = {}, playerTeam = {};
     for (const team of d.boxscore?.players || []) for (const grp of team.statistics || []) {
       const keys = grp.keys || [];
       for (const a of grp.athletes || []) {
         const nm = (a.athlete?.displayName || "").toLowerCase(), o = stats[nm] || (stats[nm] = {});
+        if (team.team?.abbreviation) playerTeam[nm] = team.team.abbreviation;
         keys.forEach((k, i) => { const v = Number(a.stats?.[i]); if (Number.isFinite(v)) o[k] = v; });
       }
     }
@@ -349,12 +471,12 @@
       espnLine = { spread: num(pc.spread), total: num(pc.overUnder), spread_p: 0.5, over_p: 0.5,
         home_ml_p: hm != null && am != null ? imp(hm) / (imp(hm) + imp(am)) : null, source: "ESPN (DraftKings)" };
     }
-    return { stats, maxLead, espnLine };
+    return { stats, playerTeam, maxLead, espnLine };
   }
 
   // ---------- point in time (ESPN play-by-play) ----------
   // ESPN game summary -> [{t, home, away, secLeft, wp, detail}] per play, in time order (wallclock). NFL/CFB/MLB carry ESPN's
-  // win probability per play; NHL has scores only (the model then keeps its pregame line until the game ends).
+  // win probability per play; NHL has scores only (the hockey model works from score, period and clock).
   // NHL play clocks count UP (time elapsed in the period), unlike football's.
   function parseTimeline(d, league) {
     const plays = (d.drives?.previous || []).flatMap((dr) => dr.plays || []).concat(d.plays || []);
@@ -369,7 +491,7 @@
       const secLeft = FOOTBALL.has(league) ? (period <= 4 ? (4 - period) * 900 + el : 0)
         : league === "NHL" ? (period <= 3 ? (3 - period) * 1200 + Math.max(0, 1200 - el) : period === 4 ? Math.max(0, 300 - el) : 0) : null;
       const detail = league === "MLB" ? `${p.period?.type || ""} ${period}`.trim() : `${league === "NHL" ? "P" : "Q"}${period} ${p.clock?.displayValue || ""}`.trim();
-      out.push({ t: Date.parse(p.wallclock), home: num(p.homeScore) ?? 0, away: num(p.awayScore) ?? 0, secLeft, wp, detail });
+      out.push({ t: Date.parse(p.wallclock), home: num(p.homeScore) ?? 0, away: num(p.awayScore) ?? 0, secLeft, period, wp, detail });
     }
     return out.sort((a, b) => a.t - b.t);
   }
@@ -381,12 +503,12 @@
     for (const [id, g] of st.games) {
       const tl = timelines.get(id) || [], start = tl.length ? tl[0].t : Date.parse(g.date), end = tl.length ? tl[tl.length - 1].t : Date.parse(g.date) + 3.5 * 3600e3;
       let x;
-      if (T < start) x = { ...g, state: "pre", homeScore: 0, awayScore: 0, secLeft: null, wp: null };
+      if (T < start) x = { ...g, state: "pre", homeScore: 0, awayScore: 0, secLeft: null, period: null, wp: null };
       else if (g.state === "post" && T >= end) x = g;
       else {
         let k = -1; while (k + 1 < tl.length && tl[k + 1].t <= T) k++;
-        const p = tl[k] || { home: 0, away: 0, secLeft: FOOTBALL.has(g.league) ? 3600 : null, wp: null };
-        x = { ...g, state: "in", homeScore: p.home, awayScore: p.away, secLeft: p.secLeft, wp: p.wp, detail: p.detail || "In progress" };
+        const p = tl[k] || { home: 0, away: 0, secLeft: FOOTBALL.has(g.league) || g.league === "NHL" ? 3600 : null, period: 1, wp: null };
+        x = { ...g, state: "in", homeScore: p.home, awayScore: p.away, secLeft: p.secLeft, period: p.period, wp: p.wp, detail: p.detail || "In progress" };
       }
       games.set(id, x);
       const sum = st.summaries.get(id);
@@ -422,7 +544,7 @@
   }
 
   // st: { games: Map(id -> parsed game, with .day), summaries: Map(id -> parseSummary), lines: live_lines rows }.
-  // replay: a YYYY-MM-DD string (every bet treated as open at kickoff) or null.
+  // replay: a YYYY-MM-DD string (every bet except voids treated as open at kickoff) or null.
   function make(st, REPLAY) {
     function findGame(l) {
       if (l.espn_id && st.games.has(String(l.espn_id))) return st.games.get(String(l.espn_id));
@@ -471,7 +593,7 @@
       const legsByGame = new Map();
       for (const b of view) for (const l of b.legs || []) { const g = findGame(l); if (g) (legsByGame.get(g.id) || legsByGame.set(g.id, []).get(g.id)).push(l); }
       for (const b of view) {
-        const pending = REPLAY || b.result === "Pending";
+        const pending = b.result === "Pending" || (REPLAY && b.result !== "Void");
         const cash = num(b.cash_risked) ?? num(b.stake) ?? 0;
         const item = { id: b.id, label: b.bet, cash, payout: toPay(b), refund: num(b.refund_on_loss) || 0 };
         if (!pending) {
@@ -483,13 +605,14 @@
             const g = findGame(l);
             const key = g ? g.id : `${l.league}:${l.away}@${l.home}`;
             if (!games[key]) {
-              const live = g ? (REPLAY ? { state: "pre" } : { state: g.state, home: g.homeScore, away: g.awayScore, secLeft: g.secLeft, wp: g.wp }) : { state: "pre" };
+              const live = g ? (REPLAY ? { state: "pre" } : { state: g.state, home: g.homeScore, away: g.awayScore, secLeft: g.secLeft, period: g.period, wp: g.wp }) : { state: "pre" };
               const sum = REPLAY ? null : g && st.summaries.get(g.id);
-              const G = { live, maxLead: sum?.maxLead, stats: sum?.stats, kind: "none", g };
+              const G = { live, maxLead: sum?.maxLead, stats: sum?.stats, playerTeam: sum?.playerTeam, kind: "none", g };
               if (g) {
                 const { L, src } = gameLine(g, legsByGame.get(g.id) || []);
                 lineSrc[key] = src;
                 if (FOOTBALL.has(g.league)) { G.kind = "football"; G.fit = M.fitFootball(L, g.league === "CFB" ? 16 : 13); }
+                else if (g.league === "NHL") { G.kind = "hockey"; G.fit = M.fitHockey(L); }
                 else { G.kind = "binary"; G.homeP = live.state === "in" && g.wp != null ? g.wp : L.home_ml_p ?? null; }
               }
               games[key] = G;
@@ -510,5 +633,5 @@
     return { findGame, lineFor, gameLine, toPay, positions };
   }
 
-  root.LiveCore = { ESPN, ESPN_GROUPS, FOOTBALL, WEEK_ANCHORS, num, betLeagues, scoreboardUrl, summaryUrl, parseEvent, parseSummary, parseTimeline, atTime, snapshotRows, make };
+  root.LiveCore = { ESPN, ESPN_GROUPS, FOOTBALL, SCORED, WEEK_ANCHORS, num, betLeagues, scoreboardUrl, summaryUrl, parseEvent, parseSummary, parseTimeline, atTime, snapshotRows, make };
 })(typeof window !== "undefined" ? window : globalThis);
