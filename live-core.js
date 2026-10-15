@@ -633,5 +633,63 @@
     return { findGame, lineFor, gameLine, toPay, positions };
   }
 
-  root.LiveCore = { ESPN, ESPN_GROUPS, FOOTBALL, SCORED, WEEK_ANCHORS, num, betLeagues, scoreboardUrl, summaryUrl, parseEvent, parseSummary, parseTimeline, atTime, snapshotRows, make };
+  // ---------- closing line value (since 10/15/2026) ----------
+  // Fair chance each bet had at kickoff: the bet priced pregame by the score models, from the Odds API line cached just
+  // before its game started (live_lines rows freeze at kickoff). Gradeable legs: ML, spread, total, team total in
+  // NFL/CFB/NHL (score models), ML elsewhere. Anything else (props, Early Win = a heuristic not a market price, futures,
+  // no Odds API line) -> src "none".
+  // st: { games: Map (parseEvent rows with .day, for name matching), lines: live_lines rows }. bets: rows with legs.
+  // today: US date (YYYY-MM-DD); a leg with no ESPN game counts as ungradeable only once its date is past.
+  // Straight bets at the line's own number (ML, main spread, main total) take the line's fair price as is; the rest are
+  // simulated. A live bet is "none" (no pregame price to beat): its text says "live", or it was logged over
+  // LIVE_GRACE_MIN after the first start (Odds API commence time, else ESPN's) (logging lags placing by a few minutes, and puck drop / kickoff
+  // runs a few minutes past the scheduled time, so a bet logged just after the start is usually pregame).
+  // Returns [{id, p, src: "fresh"|"stale"|"none", age (min from line fetch to kickoff, worst leg), why}]; bets with a
+  // game not started yet are left out (a later run grades them).
+  const CLOSE_KINDS = new Set(["ml", "spread", "total", "team_total"]), LIVE_GRACE_MIN = 15;
+  function closeProbs(st, bets, now, today, freshMin = 20, n = 100000) {
+    const preGames = new Map([...st.games].map(([id, g]) => [id, { ...g, state: "pre", homeScore: 0, awayScore: 0, secLeft: null, period: null, wp: null }]));
+    const C = make({ games: preGames, summaries: new Map(), lines: st.lines || [] }, null);
+    const out = [], ok = [], ages = new Map();
+    for (const b of bets) {
+      let why = null, wait = false, age = 0, first = Infinity, direct = null;
+      for (const l of b.legs || []) {
+        const g = C.findGame(l);
+        if (!g) { if (l.date && l.date < today) why = why || "no ESPN game"; else wait = true; continue; }
+        // Started = past both ESPN's scheduled time and the Odds API commence time (the line freezes at the latter).
+        const r = C.lineFor(g), start = Math.max(Date.parse(g.date), r ? Date.parse(r.commence_time) : 0);
+        if (start > now) { wait = true; continue; }
+        first = Math.min(first, start);
+        if (!CLOSE_KINDS.has(l.kind)) { why = why || `${l.kind} leg`; continue; }
+        if (l.lead_by) { why = why || "Early Win leg"; continue; }
+        if (!SCORED.has(g.league) && l.kind !== "ml") { why = why || `${g.league} ${l.kind} (no score model)`; continue; }
+        const need = FOOTBALL.has(g.league) ? ["home_ml_p", "spread", "spread_p", "total", "over_p"] : g.league === "NHL" ? ["home_ml_p", "total", "over_p"] : ["home_ml_p"];
+        if (!r || need.some((k) => r[k] == null)) { why = why || "no Odds API line"; continue; }
+        age = Math.max(age, (Date.parse(r.commence_time) - Date.parse(r.fetched_at)) / 60000);
+        if (b.legs.length === 1) {
+          const home = l.side === "home", hl = home ? Number(l.line) : -Number(l.line);
+          if (l.kind === "ml") direct = home ? num(r.home_ml_p) : 1 - num(r.home_ml_p);
+          else if (l.kind === "spread" && r.spread != null && hl === num(r.spread)) direct = home ? num(r.spread_p) : 1 - num(r.spread_p);
+          else if (l.kind === "total" && r.total != null && Number(l.line) === num(r.total)) direct = l.side === "over" ? num(r.over_p) : 1 - num(r.over_p);
+        }
+      }
+      if (!(b.legs || []).length) why = "no legs";
+      if (!why && (/\blive\b/i.test(b.bet || "") || (b.created_at && Date.parse(b.created_at) > first + LIVE_GRACE_MIN * 60000))) why = "live bet";
+      if (wait && !why) continue;
+      if (why) { out.push({ id: b.id, p: null, src: "none", age: null, why }); continue; }
+      const a = Math.round(age);
+      if (direct != null) { out.push({ id: b.id, p: Math.round(direct * 10000) / 10000, src: a <= freshMin ? "fresh" : "stale", age: a, why: null }); continue; }
+      ok.push({ ...b, result: "Pending" }); ages.set(b.id, Math.round(age));
+    }
+    if (ok.length) {
+      const P = C.positions(ok), res = M.run({ games: P.games, bets: P.bets, n, seed: 7 });
+      for (const x of res.perBet) {
+        const age = ages.get(x.id);
+        out.push({ id: x.id, p: Math.round(x.winP * 10000) / 10000, src: age <= freshMin ? "fresh" : "stale", age, why: null });
+      }
+    }
+    return out;
+  }
+
+  root.LiveCore = { ESPN, ESPN_GROUPS, FOOTBALL, SCORED, WEEK_ANCHORS, num, betLeagues, scoreboardUrl, summaryUrl, parseEvent, parseSummary, parseTimeline, atTime, snapshotRows, make, closeProbs };
 })(typeof window !== "undefined" ? window : globalThis);

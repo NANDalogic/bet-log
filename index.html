@@ -61,6 +61,8 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
 .kpi .k{font-size:12px;color:var(--ink-2)}
 .kpi .v{font-size:26px;font-weight:650;letter-spacing:-.01em;line-height:1.15}
 .kpi .s{font-size:12.5px;color:var(--muted)}
+.kpi.wide{grid-column:1/-1}
+@media (min-width:960px){.kpis{grid-template-columns:repeat(5,minmax(0,1fr))}.kpi.wide{grid-column:auto}}
 .pos{color:var(--good)} .neg{color:var(--bad)}
 
 .grid2{display:grid;gap:14px}
@@ -178,6 +180,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
     <div class="kpi"><span class="k">ROI</span><div class="skel" style="height:28px;width:50%"></div></div>
     <div class="kpi"><span class="k">Record</span><div class="skel" style="height:28px;width:60%"></div></div>
     <div class="kpi"><span class="k">Open bets</span><div class="skel" style="height:28px;width:40%"></div></div>
+    <div class="kpi wide"><span class="k">Closing line</span><div class="skel" style="height:28px;width:40%"></div></div>
     </section>
 
   <section class="card" id="promoCard">
@@ -326,7 +329,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
       id: r.url || Math.random().toString(36), bet: r.Bet || "Untitled bet", game: r.Game || "",
       date, t, week: weekOf(t), league: r.League || "Other", promo, verdict: r.Verdict || "No verdict",
       book: r.Book || "Other", type: r["Bet type"] || "", odds: num(r.Odds), stake, cash, ret, result,
-      settled, missing, pl: settled ? r2(ret - cash) : null, boost: num(r["Boost %"]),
+      settled, missing, pl: settled ? r2(ret - cash) : null, boost: num(r["Boost %"]), clv: r.clv || null,
     };
   }
 
@@ -384,8 +387,21 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   function clearAll() { state.range = DEFAULT_RANGE; for (const set of Object.values(state.f)) set.clear(); state.shown = 20; renderAll(); }
 
   // ---------- KPIs ----------
-  function kpi(label, value, valueCls, sub) {
-    return h("div", { class: "kpi" }, h("span", { class: "k" }, label), h("span", { class: "v num " + (valueCls || "") }, value), h("span", { class: "s" }, sub));
+  function kpi(label, value, valueCls, sub, extra) {
+    return h("div", { class: "kpi" + (extra ? " " + extra : "") }, h("span", { class: "k" }, label), h("span", { class: "v num " + (valueCls || "") }, value), h("span", { class: "s" }, sub));
+  }
+  // Closing line value (view bet_clv, file Supabase/23_clv.sql): line_move = fair chance at kickoff − fair chance when
+  // placed, so positive = the market moved toward the bet. Settled bets in the current view that have a graded close.
+  function clvKpi(rows) {
+    const g = rows.filter((b) => b.clv);
+    if (!g.length) return kpi("Closing line", "—", "", rows.length ? `None of ${rows.length} bets graded yet` : "No settled bets in this view", "wide");
+    const move = g.reduce((a, b) => a + b.clv.line_move, 0) / g.length;
+    const beat = g.filter((b) => b.clv.line_move > 0).length / g.length;
+    const evc = r2(g.reduce((a, b) => a + b.clv.ev_close, 0)), ev = r2(g.reduce((a, b) => a + b.clv.ev, 0));
+    const t = kpi("Closing line", `${move > 0 ? "+" : move < 0 ? "−" : ""}${Math.abs(move * 100).toFixed(1)} pts`, cls(move),
+      `${Math.round(beat * 100)}% beat the close · ${g.length} of ${rows.length} graded`, "wide");
+    t.title = `Average change in fair win chance from when you bet to kickoff. EV at close ${money(evc)} vs ${money(ev)} when placed (graded bets only).`;
+    return t;
   }
   function renderKpis() {
     if (!state.loaded) return;
@@ -403,6 +419,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
       kpi("ROI", pct(roi), roi == null ? "" : cls(roi), cash > 0 ? `on ${money(cash, false)} cash risked` : "No cash risked in this view"),
       kpi("Record", `${w}-${l}${p ? "-" + p : ""}`, "", (w + l ? `${Math.round((w / (w + l)) * 100)}% wins` : "No decisions") + (co ? ` · ${co} cashed out` : "") + (p ? " · W-L-Push" : " · W-L")),
       kpi("Open bets", String(open.length), "", open.length ? `${money(openCash, false)} cash at risk` : "Nothing pending"),
+      clvKpi(rows),
     );
   }
 
@@ -886,10 +903,21 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
       renderFilters(); renderPromos();
     } catch { promoError(); }
   }
+  // Graded closing lines; optional, so the page still loads if this view is unavailable.
+  async function fetchClv() {
+    try {
+      const r = await fetch(`${SB_URL}/rest/v1/bet_clv?select=id,line_move,ev,ev_close&limit=10000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+      if (!r.ok) return new Map();
+      return new Map((await r.json()).filter((x) => x.line_move != null && x.ev_close != null && x.ev != null)
+        .map((x) => [x.id, { line_move: Number(x.line_move), ev: Number(x.ev), ev_close: Number(x.ev_close) }]));
+    } catch { return new Map(); }
+  }
   async function fetchBets() {
+    const clvP = fetchClv();
     const r = await fetch(`${SB_URL}/rest/v1/bets?select=${COLS}&order=settle_date.desc&limit=10000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
     if (!r.ok) throw { code: "upstream_error", message: "HTTP " + r.status };
-    return (await r.json()).map((b) => ({
+    const clv = await clvP;
+    return (await r.json()).map((b) => ({ clv: clv.get(b.id),
       url: b.id, Bet: b.bet, Game: b.game, "date:Date:start": b.settle_date, League: b.league, Promo: b.promo,
       Verdict: b.verdict, Book: b.book, "Bet type": b.bet_type, Odds: b.odds, Stake: b.stake,
       "Cash risked": b.cash_risked, Returned: b.returned, Result: b.result, "Boost %": b.boost_pct,
