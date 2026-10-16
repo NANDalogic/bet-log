@@ -182,7 +182,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   const SB_KEY = "sb_publishable_M6Bh-PooIWoAAsrPiWJCsQ_y8QOspTG";
   const PLAN_COLS = "id,created_at,plan_date,scope,target_p_black,target_on,withdrawn,banked_day,banked_week,p_black_day,p_black_week,ev,summary,triggers";
   const COLS = "id,bet,game,settle_date,league,promo,book,bet_type,odds,stake,cash_risked,returned,result,boost_pct,fair_win_pct,ev,to_pay,refund_on_loss,legs";
-  const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev,terms_read";
+  const PROMO_COLS = "id,name,book,type,league,amount,boost_pct,expires_at,status,ev,terms_read,eligible,min_legs,min_odds";
   const DAY = 86400000, UNDO_MS = 10 * 60000, POLL_MS = 60000, IDLE_MS = 30 * 60000;
   const ESPN = LiveCore.ESPN;
   const WEEK_ANCHORS = LiveCore.WEEK_ANCHORS.map(toT);
@@ -385,6 +385,31 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   }
   function isBonus(i) { return (num(i.cash) ?? 0) === 0; }
   function boostOf(i) { const p = i.promo_id && st.promos.get(i.promo_id); return p && /boost/i.test(p.type) && p.type !== "Odds boost" ? num(p.boost_pct) || 0 : 0; }
+  // Promo eligibility (promos.eligible / min_legs / min_odds, Supabase/26_promo_eligibility.sql). Same rules as the
+  // database's plan_item_promo_check, which refuses an ineligible item when a plan is saved. This flags items saved
+  // before that check, or before their promo was corrected. Display only: nothing is blocked.
+  function promoRule(p) {
+    const e = p && Array.isArray(p.eligible) ? p.eligible : null;
+    if (!e) return null;
+    const has = (k) => e.includes(k), ml = num(p.min_legs), mo = num(p.min_odds);
+    const kind = has("straight") && has("sgp") && has("parlay") ? "Any bet type" : has("straight") && has("sgp") ? "Single or SGP"
+      : has("straight") && has("parlay") ? "Single or parlay" : has("sgp") && has("parlay") ? "Parlay or SGP"
+      : has("sgp") ? "SGP only" : has("parlay") ? "Parlays only" : "Straight bets only";
+    return [kind, ml != null && kind !== "Straight bets only" ? `${ml}+ legs` : null, mo != null ? `${amer(mo)} or longer` : null].filter(Boolean).join(" · ");
+  }
+  function promoProblem(i, odds = oddsOf(i)) {
+    const p = i.promo_id && st.promos.get(i.promo_id);
+    if (!p || !Array.isArray(p.eligible) || i.is_hedge) return null;
+    const legs = Array.isArray(i.legs) ? i.legs : [], n = legs.length;
+    const games = new Set(legs.map((l) => [l.league, l.date, l.away, l.home].filter((x) => x != null).join("|"))).size;
+    const kind = n <= 1 ? "straight" : games === 1 ? "sgp" : "parlay";
+    const what = kind === "straight" ? "a straight bet" : kind === "sgp" ? `a ${n}-leg SGP` : `a ${n}-leg parlay across ${games} games`;
+    const ml = num(p.min_legs), mo = num(p.min_odds);
+    if (!p.eligible.includes(kind)) return `Promo is ${promoRule(p)}: this pick is ${what}, so it won't get the promo.`;
+    if (kind !== "straight" && ml != null && n < ml) return `Promo needs ${ml}+ legs: this pick is ${what}.`;
+    if (mo != null && odds != null && decOf(odds) < decOf(mo) - 1e-9) return `Promo needs ${amer(mo)} or longer: this pick is ${amer(odds)}.`;
+    return null;
+  }
   // Mirrors place_plan_item: payout/EV after odds or stake edits (display only; the database does the real math).
   function quote(i, odds, stake) {
     const oldStake = stakeOf(i), payout = num(i.payout), cashNew = isBonus(i) ? 0 : stake;
@@ -622,6 +647,8 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     meta.push(h("span", { class: "num" }, `${isBonus(i) ? (stake ? money(stake, false) + " bonus" : "bonus bet") : money(num(i.cash) ?? 0, false)} → ${money(num(i.payout), false)}`));
     if (num(i.win_p) != null) meta.push(h("span", { class: "num" }, `· ${pctS(num(i.win_p))} to win`));
     if (num(i.min_odds) != null) meta.push(h("span", { class: "pill warn" }, `Only at ${amer(num(i.min_odds))} or better`));
+    const problem = s === "open" ? promoProblem(i) : null;
+    if (problem) meta.push(h("span", { class: "pill red" }, "Not eligible"));
     if (exp && exp.level === "red") meta.push(h("span", { class: "pill red" }, exp.text));
     else if (exp && exp.level === "yellow") meta.push(h("span", { class: "pill yellow" }, exp.text));
     else if (exp) meta.push(h("span", {}, "· " + exp.text));
@@ -656,6 +683,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
       h("div", { class: "ib" },
         h("div", { class: "ih" }, h("span", { class: "il" }, (isAlt ? "Alt: " : "") + i.label), h("span", { class: "iev num " + cls(itemEV(i)) }, money(itemEV(i)))),
         i.slip ? h("span", { class: "islip" }, i.slip) : null,
+        problem ? h("span", { class: "islip warnbox" }, "⚠ " + problem + " Skip it, or ask Claude to re-plan.") : null,
         lockLine,
         h("div", { class: "imeta" }, ...meta),
         h("div", { class: "iact" }, ...act)));
@@ -676,12 +704,13 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     return bits.join(" · ");
   }
   function promoRow(p) {
-    const exp = promoExpiry(p), ev = num(p.ev);
+    const exp = promoExpiry(p), ev = num(p.ev), rule = promoRule(p);
     return h("div", { class: "item promo" + (exp && (exp.level === "red" || exp.level === "yellow") ? " exp-" + exp.level : "") },
       h("div", { class: "ib", style: "grid-column:1/-1" },
         h("div", { class: "ih" }, h("span", { class: "il" }, p.name), h("span", { class: "iev num " + cls(ev ?? 0) }, ev == null ? "EV —" : money(ev))),
         h("div", { class: "imeta" }, h("span", {}, promoWhat(p)),
           exp ? (exp.level === "red" || exp.level === "yellow" ? h("span", { class: "pill " + exp.level }, exp.text) : h("span", {}, "· " + exp.text)) : h("span", {}, "· no expiry logged"),
+          rule && rule !== "Any bet type" ? h("span", { class: "pill" }, rule) : null,
           p.terms_read === false ? h("span", { class: "pill warn" }, "Terms not read") : null)));
   }
   function promoBlock(b, url) {
@@ -794,9 +823,10 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     $("#pdPreview").textContent = lr
       ? `${isKalshi(i) ? `Buy ${Math.round(pk.pay)} contracts · ` : ""}to pay ${money(s * decOf(o), false)} · with the pick: ${lockText(lr)}`
       : q ? `To pay ${money(q.pay, false)}${q.ev != null ? ` · EV ${money(q.ev)}` : ""}${num(i.odds) == null && o != null && o !== oddsOf(i) ? " · payout not recalculated (older plan)" : ""}` : "Enter the stake.";
-    const floor = num(i.min_odds), w = $("#pdWarn");
-    w.hidden = !((floor != null && o != null && decOf(o) < decOf(floor) - 1e-9) || (lr && Math.min(lr.ifPick, lr.ifHedge) < 0));
-    w.textContent = pk ? "At this price the lock loses money. Skip it, or log it only if you already placed it."
+    const floor = num(i.min_odds), w = $("#pdWarn"), problem = promoProblem(i, o ?? oddsOf(i));
+    w.hidden = !(problem || (floor != null && o != null && decOf(o) < decOf(floor) - 1e-9) || (lr && Math.min(lr.ifPick, lr.ifHedge) < 0));
+    w.textContent = problem ? problem + " Log it only if you already placed it."
+      : pk ? "At this price the lock loses money. Skip it, or log it only if you already placed it."
       : `Below the plan's floor (${amer(floor)}). The plan says skip it at this price; log it only if you placed it anyway.`;
     $("#pdGo").disabled = !s;
   }
