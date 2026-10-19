@@ -118,6 +118,117 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 .trig.hit{border-left-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,transparent)}
 .trig .tt{font-weight:600;font-size:14.5px}
 .trig .td{font-size:12.5px;color:var(--muted)}
+/* Game cards (10/19/2026): scoreboard + chart always visible, one collapsed bar, four collapsible subsections. */
+:root{--alert:#e5101d}
+.gcard{container-type:inline-size;gap:12px}
+.tc{display:inline-block;padding:1px 7px;border-radius:5px;font-weight:700;font-size:.92em;letter-spacing:.02em;line-height:1.35;white-space:nowrap;background:var(--chip);color:var(--ink)}
+.g-title{font-weight:650;font-size:15.5px}
+.g-head{display:flex;gap:12px;align-items:stretch;flex-wrap:wrap}
+.g-lsw{flex:1 1 280px;min-width:0;overflow-x:auto}
+.g-ls{border-collapse:collapse;width:100%}
+.g-ls th{font-size:11.5px;font-weight:650;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;text-align:right;padding:0 8px 4px}
+.g-ls th:first-child,.g-ls td:first-child{text-align:left;padding-left:0}
+.g-ls td{padding:5px 8px;text-align:right;font-size:17px;border-top:1px solid var(--line)}
+.g-ls td.tot{font-weight:750;font-size:20px;border-left:1px solid var(--line)}
+.g-ls th.tot{border-left:1px solid var(--line)}
+.g-ls td.win{font-weight:650;color:var(--ink-2);font-size:15px}
+.g-ls td.lead{font-weight:750;color:var(--ink)}
+.g-ls .tm{display:flex;align-items:center;gap:8px;font-size:17px}
+.ball{width:13px;height:8px;border-radius:50%;background:#8a4b1a;border:1px solid #5b2f0e;display:inline-block;position:relative;flex:none}
+.ball::after{content:"";position:absolute;left:3px;right:3px;top:50%;height:1px;background:#fff;opacity:.9}
+.noball{width:13px;display:inline-block;flex:none}
+.g-clock{flex:0 0 112px;border:1px solid var(--line);border-radius:10px;background:var(--chip);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:8px 10px;text-align:center}
+.g-clock .per{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.g-clock .time{font-size:26px;font-weight:750;line-height:1.05}
+.g-clock .time.sm{font-size:16px}
+.g-clock .poss{font-size:12.5px;color:var(--ink-2);display:flex;align-items:center;gap:6px}
+.live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#e0332b;margin-right:5px}
+@container (max-width:540px){
+  .g-clock{flex:1 1 100%;flex-direction:row;justify-content:space-between;gap:10px;padding:6px 12px}
+  .g-clock .time{font-size:22px}
+  .g-ls td{padding:5px 6px} .g-ls th{padding:0 6px 4px}
+}
+.g-chart svg{display:block;width:100%;height:auto}
+.g-chart text{font-family:var(--sans);font-size:10.5px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.g-chart text.end{font-size:12.5px}
+.g-chart .cap{font-size:12px;color:var(--muted)}
+.g-divider{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px;letter-spacing:.05em;text-transform:uppercase}
+.g-divider::before,.g-divider::after{content:"";flex:1;height:1px;background:var(--line)}
+.tag{font-size:11.5px;font-weight:650;letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+/* The collapsed bar and the subsections */
+.g-fold{border:1px solid var(--line);border-radius:10px;background:var(--page)}
+.g-fold > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px 18px;flex-wrap:wrap;padding:10px 12px;min-height:48px;font-weight:400}
+.g-fold > summary::-webkit-details-marker,.g-sub > summary::-webkit-details-marker{display:none}
+.chev{width:9px;height:9px;border-right:2px solid var(--ink-2);border-bottom:2px solid var(--ink-2);transform:rotate(-45deg);transition:transform .15s;flex:none;margin-right:2px}
+.g-fold[open] > summary .chev,.g-sub[open] > summary .chev{transform:rotate(45deg)}
+.fs{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.fs .fc{font-weight:750;font-size:17px}
+.fs .fw{font-size:13px;color:var(--ink-2)}
+.fs .fw b.pos{color:var(--good)} .fs .fw b.neg{color:var(--bad)}
+.fp{font-size:11.5px;font-weight:650;color:var(--ink-2);background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:0 7px}
+.fhint{margin-left:auto;font-size:12px;color:var(--muted)}
+.g-fold[open] > summary .fhint{display:none}
+.g-foldin{padding:0 12px 10px;display:flex;flex-direction:column;gap:14px}
+.g-sub > summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:8px;padding:2px 0;min-height:36px;font-weight:400}
+.g-sub .sc{font-weight:750;font-size:14px;color:var(--ink-2)}
+.g-sub[open] .sc{display:none}
+.g-sub .sh{margin-left:auto;font-size:12px;color:var(--muted);text-align:right}
+.g-subbody{display:flex;flex-direction:column;gap:6px;padding-top:2px}
+.fire-flag{display:none}
+.g-fold.fired{border-color:var(--alert)}
+.g-fold.fired > summary{background:var(--alert);color:#fff;border-radius:9px 9px 0 0;animation:gpulse 1.6s ease-in-out infinite}
+.g-fold.fired:not([open]) > summary{border-radius:9px}
+.g-fold.fired > summary .tag,.g-fold.fired > summary .fc,.g-fold.fired > summary .fw,.g-fold.fired > summary .fw b,.g-fold.fired > summary .fhint{color:#fff}
+.g-fold.fired > summary .chev{border-color:#fff}
+.g-fold.fired > summary .fp{background:rgba(255,255,255,.2);color:#fff;border-color:rgba(255,255,255,.5)}
+.g-fold.fired .fire-flag{display:inline;margin-left:auto;font-weight:800;letter-spacing:.06em;font-size:13px;color:#fff}
+.g-fold.fired .fhint{display:none}
+@keyframes gpulse{50%{filter:brightness(1.18)}}
+@media (prefers-reduced-motion:reduce){.g-fold.fired > summary{animation:none}}
+/* Bet rows */
+.g-bet{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) auto;gap:6px 12px;align-items:center;padding:9px 0;border-top:1px solid var(--line)}
+.g-bet:first-child,.g-par:first-child{border-top:0}
+.g-bet .t,.g-par .t{font-weight:600;font-size:15px;overflow-wrap:anywhere}
+.g-bet .meta,.g-par .meta{font-size:12.5px;color:var(--muted)}
+.g-bet .right,.g-par .right{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.g-wl{font-size:12.5px;color:var(--ink-2)}
+.g-wl.pos{color:var(--good)} .g-wl.neg{color:var(--bad)}
+.g-wl b.pos{color:var(--good);font-weight:600} .g-wl b.neg{color:var(--bad);font-weight:600}
+@container (max-width:540px){.g-bet{grid-template-columns:minmax(0,1fr) auto}.g-bet .prog{grid-column:1 / -1;grid-row:2}}
+.g-sl{display:flex;flex-direction:column;gap:3px}
+.g-sl .track{position:relative;height:8px;border-radius:4px;background:var(--grid)}
+.g-sl .track i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:var(--s1)}
+.g-sl .track b{position:absolute;top:-3px;width:3px;height:14px;border-radius:2px;background:var(--ink);right:0}
+.g-sl .track u{position:absolute;top:-3px;width:14px;height:14px;border-radius:50%;background:var(--s1);border:2px solid var(--surface);transform:translateX(-50%);text-decoration:none}
+.g-sl.hit .track i{background:var(--good-mark)}
+.g-sl .txt{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
+.g-sl .txt b{color:var(--ink)}
+.g-sl.hit .txt span:first-child{color:var(--good);font-weight:650}
+.g-stot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;border-radius:8px;background:var(--chip);font-size:13.5px;font-weight:600}
+.g-stot b.pos{color:var(--good)} .g-stot b.neg{color:var(--bad)}
+.g-par{padding:9px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.g-par .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.g-par .t{font-size:14.5px}
+.legs{display:flex;flex-wrap:wrap;gap:6px}
+.g-leg{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:7px;font-size:13px;color:var(--muted);border:1px solid transparent;background:var(--chip)}
+.g-leg .lp{font-size:12px}
+.g-leg.won .lp{color:var(--good)}
+.g-leg.dead{text-decoration:line-through}
+.g-leg .tc{opacity:.55}
+.g-leg.here{background:#fff;color:#0b0b0b;border:1.5px solid #0b0b0b;font-weight:650;text-decoration:none}
+.g-leg.here .lp{font-weight:750;font-size:13px;color:#0b0b0b}
+.g-leg.here .tc{opacity:1}
+/* Hedge trigger cards: calm while armed, bright red when fired */
+.g-trg{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.g-trg .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.g-trg .t{font-weight:600;font-size:14.5px}
+.g-trg .body{font-size:12.5px;color:var(--muted)}
+.g-trg .st{font-size:12px;font-weight:650;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 8px;white-space:nowrap}
+.g-trg .g-sl .track b{background:var(--alert)}
+.g-trg.fired{background:var(--alert);border-color:var(--alert);color:#fff}
+.g-trg.fired .t,.g-trg.fired .body,.g-trg.fired .g-sl .txt,.g-trg.fired .g-sl .txt b{color:#fff}
+.g-trg.fired .st{background:#fff;color:var(--alert);border-color:#fff;font-weight:800;letter-spacing:.06em}
+.g-trg.fired .g-sl .track{background:rgba(255,255,255,.35)} .g-trg.fired .g-sl .track i,.g-trg.fired .g-sl .track b{background:#fff}
 </style></head><body>
 <div class="wrap">
   <header>
@@ -134,7 +245,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   <section class="card hero" id="hero"><div class="skel" style="height:44px;width:60%"></div><div class="skel" style="width:80%"></div></section>
   <section class="kpis" id="kpis"></section>
   <section class="card" id="histCard" hidden><div><h2>Where it could end</h2><p class="sub">Chance of each final P/L range, from 20,000 simulated finishes</p></div><div class="chart" id="hist"></div></section>
-  <section class="card" id="cheerCard" hidden><div><h2>Cheer for</h2><p class="sub">Biggest swings first · % = chance now · P/L if it happens / if it doesn't</p></div><div class="cheer" id="cheer"></div></section>
   <div id="games" style="display:flex;flex-direction:column;gap:14px"></div>
   <section class="card" id="planCard" hidden></section>
   <section class="card" id="settledCard" hidden><details id="settledBox"><summary id="settledSum">Settled earlier</summary><div id="settled"></div></details></section>
@@ -215,6 +325,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   let mode = "day", league = "all";
   try { if (localStorage.getItem("liveMode") === "week") mode = "week"; league = localStorage.getItem("liveLeague") || "all"; } catch {}
   const st = { bets: [], plans: [], planItems: [], games: new Map(), lines: [], linesInfo: null, summaries: new Map(), loaded: false, err: null, lastAt: null };
+  st.teams = new Map();    // "NFL:SF" -> {color, alt} (ESPN team colors, for the chips and chart lines)
+  st.series = new Map();   // game id -> [[minutes elapsed, home win prob]] from ESPN's play-by-play (football)
+  st.cardIds = new Set();  // games that have a card this render
   st.hist = new Map();   // "scope|period|league" -> live_history rows
   // Model inputs come from live-core.js (shared with the live-snapshot Edge Function).
   const C = LiveCore.make(st, REPLAY), { findGame, lineFor, toPay } = C, { parseEvent, betLeagues } = LiveCore;
@@ -273,6 +386,24 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return [...unplacedAsBets(cp).flatMap((b) => b.legs), ...(cp.plan.triggers || [])];
   }
 
+  // What the game card needs beyond LiveCore.parseEvent: score by period, clock text, who has the ball, team colors.
+  function periodName(league, p, sd) {
+    if (league === "NHL") return p <= 3 ? "P" + p : p === 4 ? "OT" : "SO";
+    if (league === "NCAAB") return p <= 2 ? "H" + p : "OT";
+    if (league === "MLB") return sd;
+    return p <= 4 ? "Q" + p : p === 5 ? "OT" : (p - 4) + "OT";
+  }
+  function boardExtras(e, league) {
+    const c = e.competitions[0], stt = c.status || {}, sd = stt.type?.shortDetail || "";
+    const home = c.competitors.find((x) => x.homeAway === "home"), away = c.competitors.find((x) => x.homeAway === "away");
+    for (const k of [home, away]) st.teams.set(league + ":" + k.team.abbreviation, { color: k.team.color, alt: k.team.alternateColor });
+    const lines = (k) => (k.linescores || []).map((l) => num(l.value ?? l.displayValue) ?? 0);
+    const timed = / - /.test(sd) && !!stt.displayClock;   // "5:42 - 3rd" runs; "Halftime", "End of 1st", "Top 5th" are shown as they are
+    const pid = c.situation?.possession;
+    const ball = pid ? (String(home.team.id) === String(pid) ? home.team.abbreviation : String(away.team.id) === String(pid) ? away.team.abbreviation : null) : null;
+    return { ls: { home: lines(home), away: lines(away) }, clockTxt: timed ? stt.displayClock : "", perTxt: timed ? periodName(league, stt.period || 1, sd) : sd, ball };
+  }
+
   const espnDate = (d) => d.replaceAll("-", "");
   async function loadGames() {
     const need = new Set();
@@ -280,7 +411,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const results = await Promise.allSettled([...need].map(async (k) => {
       const [league, date] = k.split("|");
       const d = await getJSON(`https://site.api.espn.com/apis/site/v2/sports/${ESPN[league]}/scoreboard?dates=${espnDate(date)}&limit=300${ESPN_GROUPS[league] || ""}`);
-      for (const e of d.events || []) { const g = parseEvent(e, league); g.day = date; st.games.set(g.id, { ...(st.games.get(g.id) || {}), ...g }); }
+      for (const e of d.events || []) { const g = parseEvent(e, league); g.day = date; Object.assign(g, boardExtras(e, league)); st.games.set(g.id, { ...(st.games.get(g.id) || {}), ...g }); }
     }));
     if (results.some((r) => r.status === "rejected")) st.espnErr = true; else st.espnErr = false;
   }
@@ -298,9 +429,19 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
         if (SCORED.has(g.league) && !st.summaries.has(g.id) && !lineFor(g)) want.set(g.id, g);
       }
     }
+    // Football games on a card also need ESPN's play-by-play win probability for the chart: live ones every refresh,
+    // today's finished ones once.
+    if (!REPLAY) for (const b of st.bets) for (const l of b.legs || []) {
+      const g = findGame(l);
+      if (g && LiveCore.FOOTBALL.has(g.league) && (g.state === "in" || (g.state === "post" && !st.series.has(g.id) && (b.result === "Pending" || g.day === isoT(localToday()))))) want.set(g.id, g);
+    }
     await Promise.allSettled([...want.values()].map(async (g) => {
       const d = await getJSON(`https://site.api.espn.com/apis/site/v2/sports/${ESPN[g.league]}/summary?event=${g.id}`);
       st.summaries.set(g.id, LiveCore.parseSummary(d));
+      if (LiveCore.FOOTBALL.has(g.league)) {
+        const pts = LiveCore.parseTimeline(d, g.league).filter((x) => x.wp != null && x.secLeft != null).map((x) => [(3600 - x.secLeft) / 60, x.wp]);
+        if (pts.length) st.series.set(g.id, pts);
+      }
     }));
   }
 
@@ -374,7 +515,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     if (!P.bets.length) {
       hero.replaceChildren(h("span", { class: "lead" }, `No ${league === "all" ? "" : league + " "}bets ${mode === "day" ? "settling today" : "this betting week"}.`),
         h("span", { class: "meta" }, mode === "day" ? "Futures and later games aren't counted. Try This week." : "Futures aren't counted."));
-      $("#kpis").replaceChildren(); $("#histCard").hidden = $("#cheerCard").hidden = $("#settledCard").hidden = true; $("#games").replaceChildren();
+      $("#kpis").replaceChildren(); $("#histCard").hidden = $("#settledCard").hidden = true; $("#games").replaceChildren(); st.cardIds = new Set();
       renderPlan(planRes());
       renderLinesInfo();
       return;
@@ -403,10 +544,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       kpi("Best case", money(E.best), cls(E.best), `${pctFine(E.pBest)} chance`),
       kpi("Locked in", money(res.fixed), cls(res.fixed), `${settled.length} settled`),
       kpi("Worst case", money(E.worst), cls(E.worst), `${pctFine(E.pWorst)} chance`));
-    renderPlan(league === "all" ? res : planRes());
     renderHist(S, pend.length > 0);
-    renderCheer(res, P);
     renderGames(res, P);
+    renderPlan(league === "all" ? res : planRes());   // after the game cards: triggers on a card live there, not in the plan
     renderSettled(P, settled);
     renderLinesInfo(P);
   }
@@ -590,32 +730,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     box.replaceChildren(svg);
   }
 
-  function renderCheer(res, P) {
-    // Also offer each game's winner even when no bet is on the moneyline.
-    const extra = [];
-    for (const [key, G] of Object.entries(P.games)) {
-      if (!res.sims[key] || !(res.sims[key].H || res.sims[key].hw)) continue;
-      const spec = { key: `${key}:ml`, type: "ml", g: key };
-      if (res.outcomes.has(spec.key)) continue;
-      const S = res.sims[key], v = new Int8Array(res.n);
-      for (let i = 0; i < res.n; i++) v[i] = S.H ? (S.H[i] > S.A[i] ? 1 : 0) : S.hw[i];
-      extra.push({ spec, v });
-    }
-    const rows = M.cheer(res, extra).slice(0, 12);
-    $("#cheerCard").hidden = !rows.length;
-    const maxS = Math.max(1, ...rows.map((r) => r.swing));
-    const byKey = new Map();   // outcome key -> open bets with a leg on it
-    for (const b of P.bets) (b.legs || []).forEach(({ g, leg }, i) => {
-      const k = M.legOutcome(g, leg, b.id, i).key, list = byKey.get(k) || byKey.set(k, []).get(k);
-      if (!list.includes(b)) list.push(b);
-    });
-    $("#cheer").replaceChildren(...rows.map((r) => h("div", { class: "ch" },
-      h("span", { class: "cl" }, outcomeLabel(r.o, r.yes, P)),
-      h("span", { class: "cp num" }, pctS(r.p)),
-      h("span", { class: "cbar", "aria-hidden": "true" }, h("i", { style: `width:${(r.swing / maxS * 100).toFixed(0)}%` })),
-      h("span", { class: "cs num" }, "If yes ", h("b", { class: cls(r.ifYes) }, money0(r.ifYes)), " · if not ", h("b", { class: cls(r.ifNo) }, money0(r.ifNo)), r.o.est ? " · est." : ""),
-      cheerBets(byKey.get(r.o.spec.key), P))));
-  }
 
   // "BUF ML −110, +$50/−$25 · 3-lg +595: PHI ML, o44.5, Hurts ATD, +$62/−$10 · +2 more worth +$40/−$25"
   // Biggest win first; about two lines' worth, then the rest summed (a parlay's $ isn't summed: it needs its other legs too).
@@ -668,31 +782,355 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       h("span", { class: "rr num" }, `${money(cash, false)} → ${money(payout, false)}`));
   }
 
-  function renderGames(res, P) {
-    const pb = new Map(res.perBet.map((x) => [x.id, x]));
-    const cards = [];
-    const order = [...P.gameBets.keys()].sort((x, y) => {
-      const gx = P.games[x]?.g || st.games.get(x), gy = P.games[y]?.g || st.games.get(y);
-      return (gx ? Date.parse(gx.date) : 9e15) - (gy ? Date.parse(gy.date) : 9e15);
+  // ---------- game cards (since 10/19/2026, built from Josh's mock: Layout_Mock/game-card-mock.html) ----------
+  // One card per game with money on it. Always visible: scoreboard (score by period, clock, ball, win %) and the win-probability
+  // chart. Under them one collapsed bar (counts, +win / −lose, chance in the black) opens to four subsections: Straight bets,
+  // Parlays (this game's leg boxed), Hedge triggers, Cheer for. Live and upcoming games first, Across games next, finished last.
+  // Open state is remembered per card in localStorage `liveOpen:<game id>`; opening a card re-opens every subsection.
+  const OPEN_KEY = "liveOpen:";
+  const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const subClosed = new Set();   // "card|section" collapsed by hand while the card stays open; survives the 30s re-render
+
+  // --- colors ---
+  const hex2rgb = (x) => { x = String(x || "").replace("#", ""); return /^[0-9a-f]{6}$/i.test(x) ? [0, 2, 4].map((i) => parseInt(x.slice(i, i + 2), 16)) : null; };
+  const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }; return 0.2126 * f(c[0]) + 0.7152 * f(c[1]) + 0.0722 * f(c[2]); };
+  const contrast = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  const mixC = (a, b, t) => a.map((v, i) => Math.round(v + (b[i] - v) * t));
+  const rgbS = (c) => `rgb(${c.join(",")})`;
+  // Light team color behind dark team color (whichever way ESPN lists them), widened until the letters read.
+  function chipColors(team) {
+    const a = hex2rgb(team?.color), b = hex2rgb(team?.alt);
+    if (!a) return null;
+    let ink = a, bg = b || mixC(a, [255, 255, 255], 0.85);
+    if (lum(ink) > lum(bg)) [ink, bg] = [bg, ink];
+    for (let t = 0; contrast(ink, bg) < 4.5 && t < 8; t++) bg = mixC(bg, [255, 255, 255], 0.25);
+    if (contrast(ink, bg) < 4.5) ink = mixC(ink, [0, 0, 0], 0.5);
+    return { bg: rgbS(bg), ink: rgbS(ink) };
+  }
+  function pageBg() { const m = (getComputedStyle(document.body).backgroundColor || "").match(/\d+/g); return m ? m.slice(0, 3).map(Number) : [244, 244, 241]; }
+  // A team's chart line color: its primary or alternate color, nudged until it reads on the page, and apart from the other line.
+  function lineColor(team, other) {
+    const bg = pageBg(), tgt = lum(bg) < 0.4 ? [255, 255, 255] : [0, 0, 0];
+    const cands = [hex2rgb(team?.color), hex2rgb(team?.alt)].filter(Boolean);
+    const apart = (x) => !other || Math.hypot(x[0] - other[0], x[1] - other[1], x[2] - other[2]) > 90;
+    let c = cands.find((x) => contrast(x, bg) >= 3 && apart(x)) || cands.find(apart) || [122, 122, 122];
+    for (let t = 0; contrast(c, bg) < 3 && t < 6; t++) c = mixC(c, tgt, 0.2);
+    return c;
+  }
+  function teamChip(league, abbr) {
+    const c = chipColors(st.teams.get(league + ":" + abbr));
+    return h("span", { class: "tc", style: c ? `background:${c.bg};color:${c.ink}` : null }, abbr);
+  }
+  // Wrap known team abbreviations inside a bet or leg label in their chip.
+  function chipify(text, league) {
+    const out = []; let last = 0;
+    String(text).replace(/\b[A-Z]{2,4}\b/g, (m, i) => {
+      if (st.teams.has(league + ":" + m)) { if (i > last) out.push(text.slice(last, i)); out.push(teamChip(league, m)); last = i + m.length; }
+      return m;
     });
-    for (const key of order) {
-      const ids = P.gameBets.get(key).filter((id) => REPLAY ? P.meta.get(id).result !== "Void" : P.meta.get(id).result === "Pending");
-      if (!ids.length) continue;
-      const g = st.games.get(key);
-      let title = key === "multi" ? "Across games" : key === "none" ? "Other bets" : g ? `${g.away} @ ${g.home}` : P.meta.get(ids[0]).game;
-      let status = "";
-      if (g) {
-        if (REPLAY) status = "Replay · as of kickoff";
-        else if (g.state === "pre") status = new Date(g.date).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" });
-        else status = `${g.away} ${g.awayScore} – ${g.home} ${g.homeScore} · ${g.detail}` + (g.wp != null ? ` · ${g.home} ${Math.round(g.wp * 100)}% (ESPN)` : "");
-      }
-      const src = P.lineSrc[key];
-      cards.push(h("section", { class: "card game" },
-        h("div", { class: "gh" }, h("span", { class: "gt" }, title), h("span", { class: "gs num" }, status)),
-        g && SCORED.has(g.league) ? h("p", { class: "sub" }, src && src.length ? "Line from " + src.join(" + ") : "No line found: league-average scoring") : null,
-        h("div", {}, ...ids.map((id) => betRow(P.meta.get(id), pb.get(id))))));
+    if (last < text.length) out.push(text.slice(last));
+    return out;
+  }
+
+  // --- scoreboard pieces ---
+  function lsLabel(league, i) {
+    if (league === "NHL") return i < 3 ? String(i + 1) : i === 3 ? "OT" : "SO";
+    if (league === "MLB") return String(i + 1);
+    const reg = league === "NCAAB" ? 2 : 4;
+    return i < reg ? String(i + 1) : i === reg ? "OT" : "OT" + (i - reg + 1);
+  }
+  // Home win chance: ESPN's when it has one (football), else the page's own simulation (hockey, binary sports), else none.
+  function homeWinP(g, res, key) {
+    if (g.wp != null) return { p: g.wp, src: "ESPN" };
+    const S = res.sims[key]; if (!S) return null;
+    let k = 0;
+    if (S.H) { for (let i = 0; i < res.n; i++) if (S.H[i] > S.A[i]) k++; return { p: k / res.n, src: "model" }; }
+    if (S.hw) { for (let i = 0; i < res.n; i++) k += S.hw[i]; return { p: k / res.n, src: "model" }; }
+    return null;
+  }
+  function gameHeader(g, key, res) {
+    const live = g.state === "in", post = g.state === "post", pre = g.state === "pre";
+    const hw = live ? homeWinP(g, res, key) : null;
+    const cols = !FROZEN && !pre && g.ls && g.ls.home.length ? g.ls.home.map((_, i) => lsLabel(g.league, i)) : [];
+    const tot = { home: g.homeScore, away: g.awayScore }, lead = tot.home === tot.away ? null : tot.home > tot.away ? "home" : "away";
+    const row = (side) => h("tr", {},
+      h("td", {}, h("div", { class: "tm" }, live && g.ball === g[side] ? h("span", { class: "ball", title: "Has the ball" }) : h("span", { class: "noball" }), teamChip(g.league, g[side]))),
+      cols.map((_, i) => h("td", { class: "num" }, g.ls[side][i] ?? "")),
+      pre ? null : h("td", { class: "num tot" + (lead === side ? " lead" : "") }, tot[side]),
+      hw ? h("td", { class: "num win", title: hw.src === "ESPN" ? "ESPN win probability" : "This page's model" }, Math.round((side === "home" ? hw.p : 1 - hw.p) * 100) + "%") : null);
+    const clk = pre ? [h("div", { class: "per" }, "Kickoff"), h("div", { class: "time sm num" }, new Date(g.date).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" }))]
+      : post ? [h("div", { class: "per" }, g.detail || "Final"), h("div", { class: "time sm" }, lead ? g[lead] + " won" : "Tie")]
+      : [h("div", { class: "per" }, h("span", { class: "live-dot" }), g.perTxt || g.detail), g.clockTxt ? h("div", { class: "time num" }, g.clockTxt) : null,
+         g.ball ? h("div", { class: "poss" }, h("span", { class: "ball" }), g.ball + " ball") : null];
+    return h("div", { class: "g-head" },
+      h("div", { class: "g-lsw" }, h("table", { class: "g-ls" },
+        h("thead", {}, h("tr", {}, h("th", {}), cols.map((c) => h("th", {}, c)), pre ? null : h("th", { class: "tot" }, "T"), hw ? h("th", {}, "Win") : null)),
+        h("tbody", {}, row("away"), row("home")))),
+      h("div", { class: "g-clock" }, ...clk));
+  }
+
+  // Win probability, kickoff (left edge) to now (right edge), one line per team like Kalshi. Football only (ESPN's play-by-play win %).
+  function winChart(g) {
+    if (FROZEN || g.state === "pre") return null;
+    const pts = (st.series.get(g.id) || []).map((p) => p.slice());
+    if (g.state === "in" && g.wp != null) {
+      const t = g.secLeft != null ? (3600 - g.secLeft) / 60 : pts.length ? pts[pts.length - 1][0] : 0;
+      if (!pts.length || t > pts[pts.length - 1][0] + 0.01) pts.push([t, g.wp]); else pts[pts.length - 1][1] = g.wp;
     }
-    $("#games").replaceChildren(...cards);
+    if (!pts.length) return null;
+    if (pts[0][0] > 0.05) pts.unshift([0, pts[0][1]]);
+    if (pts.length < 2) pts.push([pts[0][0] + 1, pts[0][1]]);   // minute 1: a flat line across
+    const end = pts[pts.length - 1][0], W = 600, H = 150, L = 30, R = 66, T = 8, B = 20, pw = W - L - R, ph = H - T - B;
+    const x = (t) => L + (t / end) * pw, y = (p) => T + (1 - p) * ph;
+    const hc = lineColor(st.teams.get(g.league + ":" + g.home)), ac = lineColor(st.teams.get(g.league + ":" + g.away), hc);
+    const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": "Win probability by team, kickoff to " + (g.state === "in" ? "now" : "final") });
+    for (const p of [0.25, 0.5, 0.75]) {
+      svg.append(s("line", { x1: L, x2: W - R, y1: y(p), y2: y(p), stroke: "var(--grid)", "stroke-dasharray": p === 0.5 ? null : "3 4" }));
+      const tx = s("text", { x: L - 5, y: y(p) + 3.5, "text-anchor": "end" }); tx.textContent = Math.round(p * 100); svg.append(tx);
+    }
+    if (LiveCore.FOOTBALL.has(g.league)) for (let q = 0; q < 4 && q * 15 < end; q++) {
+      const a = q * 15, b = Math.min(a + 15, end);
+      if (q) svg.append(s("line", { x1: x(a), x2: x(a), y1: T, y2: T + ph, stroke: "var(--grid)" }));
+      const tx = s("text", { x: (x(a) + x(b)) / 2, y: H - 5, "text-anchor": "middle" }); tx.textContent = "Q" + (q + 1); svg.append(tx);
+    }
+    const path = (f) => pts.map(([t, p], i) => (i ? "L" : "M") + x(t).toFixed(1) + " " + y(f(p)).toFixed(1)).join(" ");
+    const last = pts[pts.length - 1][1];
+    for (const [side, c, f, p] of [["away", ac, (v) => 1 - v, 1 - last], ["home", hc, (v) => v, last]]) {
+      svg.append(s("path", { d: path(f), fill: "none", stroke: rgbS(c), "stroke-width": 2.2, "stroke-linejoin": "round" }));
+      svg.append(s("circle", { cx: x(end), cy: y(p), r: 3.5, fill: rgbS(c) }));
+    }
+    // End labels, nudged apart when the lines meet.
+    let yh = y(last) + 4, ya = y(1 - last) + 4;
+    if (Math.abs(yh - ya) < 14) { if (yh >= ya) { yh += 7; ya -= 7; } else { yh -= 7; ya += 7; } }
+    for (const [lab, c, yy] of [[g.home + " " + Math.round(last * 100) + "%", hc, yh], [g.away + " " + Math.round((1 - last) * 100) + "%", ac, ya]]) {
+      const tx = s("text", { x: W - R + 8, y: yy, fill: rgbS(c), "font-size": 12.5, "font-weight": 700, class: "end" }); tx.textContent = lab; svg.append(tx);
+    }
+    return h("div", { class: "g-chart" }, svg, h("div", { class: "cap" }, h("span", {}, "Win probability, kickoff to " + (g.state === "in" ? "now" : "final") + " (ESPN)")));
+  }
+
+  // --- bets ---
+  // P/L per simulated finish for one open bet (same rules as LiveModel.run; refunds ignored like the headline).
+  function betPL(res, x) {
+    const out = new Float32Array(res.n), L = x.legs.map(({ key, want }) => ({ v: res.outcomes.get(key).v, want }));
+    for (let i = 0; i < res.n; i++) {
+      let ok = true, allPush = true;
+      for (const { v, want } of L) { const k = v[i]; if (k === 2) continue; allPush = false; if ((k === 1) !== want) { ok = false; break; } }
+      out[i] = ok && allPush ? 0 : ok ? x.payout - x.cash : -x.cash;
+    }
+    return out;
+  }
+  const wlEl = (win, risk) => h("span", { class: "g-wl num" }, h("b", { class: "pos" }, money0(win)), " / ", h("b", { class: "neg" }, money0(-risk)));
+  // Current number vs the line, for "over" legs that can be tracked: game total, team total, player stats (line above 0.5).
+  function progress(l, gameKey, ctx) {
+    const g = st.games.get(gameKey);
+    if (!g || g.state === "pre" || FROZEN) return null;
+    const over = (l.ou || l.side || "over") === "over", line = Number(l.line);
+    if (!over || !Number.isFinite(line)) return null;
+    let cur = null, unit = "";
+    if (l.kind === "total") { cur = g.homeScore + g.awayScore; unit = "pts"; }
+    else if (l.kind === "team_total") { cur = l.side === "home" ? g.homeScore : g.awayScore; unit = "pts"; }
+    else if (l.kind === "prop" && line > 0.5) {
+      const stt = ctx.P.games[gameKey]?.stats?.[(l.player || "").toLowerCase()];
+      if (!stt) return null;
+      cur = stt[l.stat] ?? 0; unit = STAT_LABEL[l.stat] || l.stat;
+    }
+    if (cur == null) return null;
+    const hit = cur >= line, pct = Math.min(cur / line, 1) * 100;
+    return h("div", { class: "g-sl" + (hit ? " hit" : "") },
+      h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), hit ? null : h("u", { style: `left:${pct}%` }), h("b", {})),
+      h("div", { class: "txt num" }, h("span", {}, hit ? "✓ " : "", h("b", {}, cur), " " + unit), h("span", {}, "line " + line)));
+  }
+  function statePill(m, it, x) {
+    if (it.fixedPL != null) return h("span", { class: "pill " + (m.result === "Won" ? "won" : m.result === "Lost" ? "dead" : "") }, m.result);
+    if (x && x.winP >= 0.999) return h("span", { class: "pill won" }, "Winning");
+    if (x && x.winP + x.pushP <= 0.001) return h("span", { class: "pill dead" }, "Dead");
+    return h("span", { class: "pill num" }, x ? pctS(x.winP) + (x.est ? " est." : "") : "—");
+  }
+  function betMeta(m, it) {
+    const o = odds(num(m.odds));
+    return [m.book, o || null, `${money(it.cash, false)} → ${money(it.payout, false)}`, it.cash === 0 ? "bonus bet" : null, m.promo && !["None", "Other"].includes(m.promo) ? m.promo : null].filter(Boolean).join(" · ");
+  }
+  function straightRowG(id, gameKey, ctx) {
+    const m = ctx.P.meta.get(id), it = ctx.item.get(id), x = ctx.pbm.get(id), l = (m.legs || [])[0];
+    const settled = it.fixedPL != null;
+    return h("div", { class: "g-bet" },
+      h("div", { class: "main" }, h("div", { class: "t" }, l ? chipify(legShort(l), l.league) : m.bet), h("div", { class: "meta num" }, betMeta(m, it))),
+      h("div", { class: "prog" }, l ? progress(l, gameKey, ctx) : null),
+      h("div", { class: "right" }, statePill(m, it, x), settled ? h("span", { class: "g-wl num " + cls(it.fixedPL) }, money(it.fixedPL)) : wlEl(it.payout - it.cash, it.cash)));
+  }
+  // gameKey null = the Across games card: no leg is boxed.
+  function parlayRowG(id, gameKey, ctx) {
+    const { P, res } = ctx, m = P.meta.get(id), it = ctx.item.get(id), x = ctx.pbm.get(id), legs = m.legs || [];
+    const settled = it.fixedPL != null;
+    const legEls = legs.map((l, i) => {
+      const L = it.legs && it.legs[i];
+      const spec = L ? M.legOutcome(L.g, l, id, i) : null, o = spec ? res.outcomes.get(spec.key) : null;
+      const p = o ? (spec.want ? o.p : 1 - o.p - o.push) : null;
+      const here = gameKey != null && ctx.gkey(l) === gameKey;
+      return h("span", { class: "g-leg" + (here ? " here" : "") + (p != null && p >= 0.999 ? " won" : p != null && p <= 0.001 ? " dead" : "") },
+        chipify(legShort(l), l.league), p == null ? null : h("span", { class: "lp num" }, p >= 0.999 ? "✓" : p <= 0.001 ? "✗" : pctS(p)));
+    });
+    return h("div", { class: "g-par" },
+      h("div", { class: "top" }, h("div", {}, h("div", { class: "t" }, `${legs.length}-leg parlay`), h("div", { class: "meta num" }, betMeta(m, it))),
+        h("div", { class: "right" }, statePill(m, it, x), settled ? h("span", { class: "g-wl num " + cls(it.fixedPL) }, money(it.fixedPL)) : wlEl(it.payout - it.cash, it.cash))),
+      h("div", { class: "legs" }, legEls));
+  }
+  // Counts, +win / −lose (settled bets at their real P/L), and the chance the group ends in the black.
+  function totalsOf(ids, ctx) {
+    let win = 0, lose = 0, fixed = 0, won = 0, lost = 0; const pend = [];
+    for (const id of ids) {
+      const it = ctx.item.get(id);
+      if (it.fixedPL != null) { win += it.fixedPL; lose += it.fixedPL; fixed += it.fixedPL; if (it.fixedPL > 0.004) won++; else if (it.fixedPL < -0.004) lost++; }
+      else { win += it.payout - it.cash; lose -= it.cash; pend.push(id); }
+    }
+    const arrs = pend.map(ctx.plOf).filter(Boolean);
+    let pBlack = null;
+    if (arrs.length) { let k = 0; for (let i = 0; i < ctx.res.n; i++) { let t = fixed; for (const a of arrs) t += a[i]; if (t > 0.005) k++; } pBlack = k / ctx.res.n; }
+    return { n: ids.length, win, lose, done: !pend.length, won, lost, pBlack };
+  }
+
+  // --- hedge triggers (same math as before; now shown on the trigger's own game card) ---
+  function hedgeState(t) {
+    const g = findGame(t), home = t.our_side === "home";
+    const ours = home ? t.home : t.away, theirs = home ? t.away : t.home;
+    const wp = g && g.state === "in" && g.wp != null ? (home ? g.wp : 1 - g.wp) : null;
+    const at = num(t.live_p) ?? 0.85, hit = wp != null && wp >= at && wp < 0.995;
+    return { t, g, ours, theirs, wp, at, hit, home, H: hedgeAt(t, hit ? wp : at) };
+  }
+  function hedgeCard(sx, league) {
+    const { g, ours, theirs, wp, at, hit, H } = sx;
+    const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (ESPN)` : "";
+    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
+      : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
+    const pct = wp == null ? 0 : Math.min(wp, 1) * 100;
+    return h("div", { class: "g-trg" + (hit ? " fired" : "") },
+      h("div", { class: "top" }, h("div", { class: "t num" }, title), h("span", { class: "st" }, hit ? "HEDGE NOW" : "Armed")),
+      h("div", { class: "body num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · if ${theirs} wins: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}`),
+      wp == null ? null : h("div", { class: "g-sl" }, h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), h("b", { style: `left:${at * 100}%;right:auto` })),
+        h("div", { class: "txt num" }, h("span", {}, `${ours} now `, h("b", {}, pctS(wp))), h("span", {}, "trigger " + pctS(at)))));
+  }
+
+  // --- collapsible pieces ---
+  function foldMain(storeKey, extraClass, summaryKids, bodyKids) {
+    const d = h("details", { class: "g-fold " + (extraClass || ""), open: lsGet(OPEN_KEY + storeKey) === "1" },
+      h("summary", {}, h("span", { class: "chev", "aria-hidden": "true" }), summaryKids), h("div", { class: "g-foldin" }, bodyKids));
+    d.addEventListener("toggle", () => {
+      if (d.open === (lsGet(OPEN_KEY + storeKey) === "1")) return;   // also fires when a re-render builds an open card: ignore
+      lsSet(OPEN_KEY + storeKey, d.open ? "1" : "0");
+      if (d.open) { for (const k of [...subClosed]) if (k.startsWith(storeKey + "|")) subClosed.delete(k); d.querySelectorAll(".g-sub").forEach((x) => { x.open = true; }); }
+    });
+    return d;
+  }
+  function subSec(card, name, title, count, hint, kids) {
+    const k = card + "|" + name;
+    const d = h("details", { class: "g-sub", open: !subClosed.has(k) },
+      h("summary", {}, h("span", { class: "chev", "aria-hidden": "true" }), h("span", { class: "tag" }, title), h("span", { class: "sc num" }, count), h("span", { class: "sh" }, hint)),
+      h("div", { class: "g-subbody" }, kids));
+    d.addEventListener("toggle", () => { if (!d.open === subClosed.has(k)) return; if (d.open) subClosed.delete(k); else subClosed.add(k); });
+    return d;
+  }
+  const sumGroup = (label, t) => !t.n ? null : h("span", { class: "fs" }, h("span", { class: "tag" }, label), h("span", { class: "fc num" }, t.n),
+    t.done ? h("span", { class: "fw num" }, h("b", { class: cls(t.win) }, money0(t.win)), " final")
+      : h("span", { class: "fw num" }, h("b", { class: "pos" }, money0(t.win)), " / ", h("b", { class: "neg" }, money0(t.lose))),
+    t.pBlack != null ? h("span", { class: "fp num", title: "Chance this group finishes in the black" }, pctS(t.pBlack) + " black") : null);
+  const bySwing = (a, b) => b.payout - b.cash - (a.payout - a.cash);
+
+  function renderGames(res, P) {
+    const pbm = new Map(res.perBet.map((x) => [x.id, x])), item = new Map(P.bets.map((b) => [b.id, b]));
+    const today = isoT(localToday());
+    const gkey = (l) => { const g = findGame(l); return g ? g.id : `${l.league}:${l.away}@${l.home}`; };
+    const plMemo = new Map();
+    const plOf = (id) => { if (!plMemo.has(id)) { const x = pbm.get(id); plMemo.set(id, x && x.legs && !x.settled ? betPL(res, x) : null); } return plMemo.get(id); };
+    const ctx = { P, res, pbm, item, gkey, plOf };
+    st.cardIds = new Set();
+
+    // Sort every bet into its game's straights/parlays; bets across games also go to the Across games card.
+    const cards = new Map(), across = [], other = [];
+    const cardOf = (k) => cards.get(k) || cards.set(k, { straights: [], parlays: [] }).get(k);
+    for (const b of P.bets) {
+      const m = P.meta.get(b.id), legs = m.legs || [], settled = b.fixedPL != null;
+      if (!legs.length) { if (!settled) other.push(b.id); continue; }
+      const keys = [...new Set(legs.map(gkey))];
+      if (keys.length > 1 && !settled) across.push(b.id);
+      for (const k of keys) {
+        const g = st.games.get(k);
+        if (settled && !(g && g.state === "post" && g.day === today && !FROZEN)) continue;   // settled bets show only on today's finished games
+        (legs.length === 1 ? cardOf(k).straights : cardOf(k).parlays).push(b.id);
+      }
+    }
+
+    // Cheer for, grouped by game (each game's winner is offered even with no moneyline bet on it).
+    const extra = [];
+    for (const [key] of Object.entries(P.games)) {
+      if (!res.sims[key] || !(res.sims[key].H || res.sims[key].hw)) continue;
+      const spec = { key: `${key}:ml`, type: "ml", g: key };
+      if (res.outcomes.has(spec.key)) continue;
+      const S = res.sims[key], v = new Int8Array(res.n);
+      for (let i = 0; i < res.n; i++) v[i] = S.H ? (S.H[i] > S.A[i] ? 1 : 0) : S.hw[i];
+      extra.push({ spec, v });
+    }
+    const cheerBy = new Map();
+    for (const r of M.cheer(res, extra)) { const k = r.o.spec.g; (cheerBy.get(k) || cheerBy.set(k, []).get(k)).push(r); }
+    const byKey = new Map();   // outcome key -> open bets with a leg on it
+    for (const b of P.bets) (b.legs || []).forEach(({ g, leg }, i) => {
+      const k = M.legOutcome(g, leg, b.id, i).key, list = byKey.get(k) || byKey.set(k, []).get(k);
+      if (!list.includes(b)) list.push(b);
+    });
+    const hedgeBy = new Map();
+    for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) { const sx = hedgeState(t); if (sx.g) (hedgeBy.get(sx.g.id) || hedgeBy.set(sx.g.id, []).get(sx.g.id)).push(sx); }
+
+    const rank = (k) => { const g = st.games.get(k); return !g ? 1 : g.state === "in" ? 0 : g.state === "pre" ? 1 : 2; };
+    const order = [...cards.keys()].filter((k) => cards.get(k).straights.length + cards.get(k).parlays.length)
+      .sort((a, b) => rank(a) - rank(b) || (Date.parse(st.games.get(a)?.date) || 9e15) - (Date.parse(st.games.get(b)?.date) || 9e15));
+
+    function gameCard(key) {
+      const g = st.games.get(key), d = cards.get(key), meta0 = P.meta.get(d.straights[0] ?? d.parlays[0]);
+      const straights = d.straights.slice().sort((a, b) => bySwing(item.get(a), item.get(b))), parlays = d.parlays.slice().sort((a, b) => bySwing(item.get(a), item.get(b)));
+      const tS = totalsOf(straights, ctx), tP = totalsOf(parlays, ctx);
+      const hedges = hedgeBy.get(key) || [], fired = hedges.some((x) => x.hit);
+      const cheer = (cheerBy.get(key) || []).slice(0, 8);
+      if (g) st.cardIds.add(g.id);
+
+      const straightTotal = h("div", { class: "g-stot" }, h("span", {}, "Straight bets total"),
+        tS.done ? h("span", { class: "num" }, "Final P/L ", h("b", { class: cls(tS.win) }, money(tS.win)), ` · ${tS.won} won, ${tS.lost} lost`)
+          : h("span", { class: "num" }, "If all win ", h("b", { class: "pos" }, money0(tS.win)), " · if all lose ", h("b", { class: "neg" }, money0(tS.lose))));
+      const maxS = Math.max(1, ...cheer.map((r) => r.swing));
+      const subs = [
+        straights.length ? subSec(key, "straights", "Straight bets", straights.length, "sorted by payout", [...straights.map((id) => straightRowG(id, key, ctx)), straightTotal]) : null,
+        parlays.length ? subSec(key, "parlays", "Parlays", parlays.length, "boxed leg = this game", parlays.map((id) => parlayRowG(id, key, ctx))) : null,
+        hedges.length ? subSec(key, "hedges", "Hedge triggers", hedges.length, "card turns red when one fires", hedges.map((x) => hedgeCard(x))) : null,
+        cheer.length ? subSec(key, "cheer", "Cheer for", cheer.length, "% = chance now · night P/L if yes / if not", cheer.map((r) => h("div", { class: "ch" },
+          h("span", { class: "cl" }, outcomeLabel(r.o, r.yes, P)),
+          h("span", { class: "cp num" }, pctS(r.p)),
+          h("span", { class: "cbar", "aria-hidden": "true" }, h("i", { style: `width:${(r.swing / maxS * 100).toFixed(0)}%` })),
+          h("span", { class: "cs num" }, "If yes ", h("b", { class: cls(r.ifYes) }, money0(r.ifYes)), " · if not ", h("b", { class: cls(r.ifNo) }, money0(r.ifNo)), r.o.est ? " · est." : ""),
+          cheerBets(byKey.get(r.o.spec.key), P)))) : null,
+      ];
+      const bar = [sumGroup("Straight bets", tS), sumGroup("Parlays", tP), hedges.length ? h("span", { class: "fire-flag" }, "HEDGE NOW") : null, h("span", { class: "fhint" }, "Tap to see every bet")];
+      const head = g ? [gameHeader(g, key, res), winChart(g)]
+        : [h("div", { class: "g-title" }, meta0 ? meta0.game : key)];
+      const src = P.lineSrc[key];
+      return h("section", { class: "card gcard" },
+        ...head,
+        g && SCORED.has(g.league) ? h("p", { class: "sub" }, src && src.length ? "Line from " + src.join(" + ") : "No line found: league-average scoring") : null,
+        foldMain(key, fired ? "fired" : "", bar, subs));
+    }
+
+    const acrossIds = across.slice().sort((a, b) => bySwing(item.get(a), item.get(b)));
+    function acrossCard() {
+      const t = totalsOf(acrossIds, ctx);
+      return h("section", { class: "card gcard" }, foldMain("across", "", [sumGroup("Across games", t), h("span", { class: "fhint" }, "Tap to see the parlays")],
+        [h("p", { class: "sub" }, "Parlays with legs in 2+ games. They also show inside each game's card."), ...acrossIds.map((id) => parlayRowG(id, null, ctx))]));
+    }
+    function otherCard() {
+      return h("section", { class: "card gcard" }, h("div", { class: "g-title" }, "Other bets"), h("div", {}, ...other.map((id) => betRow(P.meta.get(id), pbm.get(id)))));
+    }
+
+    const live = order.filter((k) => rank(k) < 2), done = order.filter((k) => rank(k) === 2);
+    const nodes = [...live.map(gameCard), acrossIds.length ? acrossCard() : null, other.length ? otherCard() : null,
+      done.length ? h("div", { class: "g-divider" }, "Finished") : null, ...done.map(gameCard)];
+    $("#games").replaceChildren(...nodes.filter(Boolean));
   }
 
   // P(final P/L above a line). Week plans start from banked − withdrawn, so their "black" line is the withdrawal.
@@ -736,16 +1174,10 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const rows = [h("div", { class: "row" }, h("span", { class: "rt" }, `${placed} of ${live} placed` + (open ? ` · ${open} still to place` : "")),
       h("a", { class: "pill", href: "plan.html" + (plan.plan_date === isoT(localToday()) ? "" : "?date=" + plan.plan_date), style: "text-decoration:none;color:var(--s1)" }, "Open plan →"))];
 
-    // Live-hedge triggers.
+    // Live-hedge triggers. Ones whose game has a card are shown there (under its Hedge triggers); only the rest stay here.
     let anyHit = false;
-    const trigs = (plan.triggers || []).map((t) => {
-      const g = findGame(t);
-      const home = t.our_side === "home";
-      const ours = home ? t.home : t.away, theirs = home ? t.away : t.home;
-      const wp = g && g.state === "in" && g.wp != null ? (home ? g.wp : 1 - g.wp) : null;
-      const at = num(t.live_p) ?? 0.85, hit = wp != null && wp >= at && wp < 0.995;
-      anyHit = anyHit || hit;
-      const H = hedgeAt(t, hit ? wp : at);
+    const trigs = (plan.triggers || []).map(hedgeState).filter((sx) => { anyHit = anyHit || sx.hit; return !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
+      const { t, g, ours, theirs, wp, at, hit, H } = sx;
       const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (ESPN)` : "";
       const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
         : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
@@ -760,8 +1192,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       h("div", {}, h("h2", {}, "Plan"), h("p", { class: "sub" }, head.join(" · ") + (plan.summary ? " · " + plan.summary : ""))),
       h("span", { class: "plannums num" }, nums),
       h("div", {}, ...rows),
-      trigs.length ? h("div", {}, h("h2", { style: "font-size:14.5px;margin:6px 0 2px" }, "Live hedges"), ...trigs,
-        h("p", { class: "sub", style: "margin-top:6px" }, "ESPN's win % is an estimate. Check the real price at Novig or Kalshi first; the stake scales with it. Hedging at a fair price costs almost nothing in EV. It trades upside for certainty.")) : null);
+      ...(trigs.length ? [h("div", {}, h("h2", { style: "font-size:14.5px;margin:6px 0 2px" }, "Live hedges"), ...trigs,
+        h("p", { class: "sub", style: "margin-top:6px" }, "ESPN's win % is an estimate. Check the real price at Novig or Kalshi first; the stake scales with it. Hedging at a fair price costs almost nothing in EV. It trades upside for certainty."))] : []));
   }
 
   function renderSettled(P, settled) {
