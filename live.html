@@ -338,6 +338,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const w = weekOf(today);
     return [w.start, w.start + 6 * DAY, today, w.w];
   }
+  // A game day inside the Today / This week window (finished games show their settled bets only then).
+  function dayInView(d) { if (!d) return false; const [a, z] = bounds(), t = toT(d); return t >= a && t <= z; }
 
   // ---------- data ----------
   async function sb(path) {
@@ -430,10 +432,10 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       }
     }
     // Football games on a card also need ESPN's play-by-play win probability for the chart: live ones every refresh,
-    // today's finished ones once.
+    // finished ones once (the whole loaded week, so switching to This week needs no extra fetch).
     if (!REPLAY) for (const b of st.bets) for (const l of b.legs || []) {
       const g = findGame(l);
-      if (g && LiveCore.FOOTBALL.has(g.league) && (g.state === "in" || (g.state === "post" && !st.series.has(g.id) && (b.result === "Pending" || g.day === isoT(localToday()))))) want.set(g.id, g);
+      if (g && LiveCore.FOOTBALL.has(g.league) && (g.state === "in" || (g.state === "post" && !st.series.has(g.id)))) want.set(g.id, g);
     }
     await Promise.allSettled([...want.values()].map(async (g) => {
       const d = await getJSON(`https://site.api.espn.com/apis/site/v2/sports/${ESPN[g.league]}/summary?event=${g.id}`);
@@ -1064,7 +1066,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
   function renderGames(res, P) {
     const pbm = new Map(res.perBet.map((x) => [x.id, x])), item = new Map(P.bets.map((b) => [b.id, b]));
-    const today = isoT(localToday());
     const gkey = (l) => { const g = findGame(l); return g ? g.id : `${l.league}:${l.away}@${l.home}`; };
     const plMemo = new Map();
     const plOf = (id) => { if (!plMemo.has(id)) { const x = pbm.get(id); plMemo.set(id, x && x.legs && !x.settled ? betPL(res, x) : null); } return plMemo.get(id); };
@@ -1081,7 +1082,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       if (keys.length > 1 && !settled) across.push(b.id);
       for (const k of keys) {
         const g = st.games.get(k);
-        if (settled && !(g && g.state === "post" && g.day === today && !FROZEN)) continue;   // settled bets show only on today's finished games
+        if (settled && !(g && g.state === "post" && dayInView(g.day) && !FROZEN)) continue;   // settled bets show on finished games in the Today / This week window
         (legs.length === 1 ? cardOf(k).straights : cardOf(k).parlays).push(b.id);
       }
     }
@@ -1153,7 +1154,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       return h("section", { class: "card gcard" }, h("div", { class: "g-title" }, "Other bets"), h("div", {}, ...other.map((id) => betRow(P.meta.get(id), pbm.get(id)))));
     }
 
-    const live = order.filter((k) => rank(k) < 2), done = order.filter((k) => rank(k) === 2);
+    const live = order.filter((k) => rank(k) < 2), done = order.filter((k) => rank(k) === 2).reverse();   // finished: most recent first
     const nodes = [...live.map(gameCard), acrossIds.length ? acrossCard() : null, other.length ? otherCard() : null,
       done.length ? h("div", { class: "g-divider" }, "Finished") : null, ...done.map(gameCard)];
     $("#games").replaceChildren(...nodes.filter(Boolean));
