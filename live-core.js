@@ -5,8 +5,8 @@
 
 // ===================== model =====================
 // Pure simulation model (no DOM). Port of bet-sim's football and hockey score models (betsim.py fit_football/simulate,
-// fit_hockey/simulate_hockey/goals_mask), plus live conditioning on score/clock (and ESPN win probability for football).
-// Other sports are win/lose only. Exposed as window.LiveModel.
+// fit_hockey/simulate_hockey/goals_mask), basketball (normal margin/total) and baseball (runs) models, plus live
+// conditioning on score/clock (and ESPN win probability where it has one). Other sports are win/lose only. Exposed as window.LiveModel.
 (function (root) {
   function erf(x) {   // Abramowitz–Stegun 7.1.26 (error < 1.5e-7)
     const s = x < 0 ? -1 : 1; x = Math.abs(x);
@@ -151,6 +151,109 @@
     return (lo + hi) / 2;
   }
 
+  // ---------- basketball (NBA, NCAAB) ----------
+  // Final margin ~ N(mu_m, sd_m), total ~ N(mu_t, sd_t) as football, with the league's SDs (NBA 12 / 18, NCAAB 11 / 17).
+  // sd_m from ML + spread when they agree (kept within ±30% of the league's). No total line → league-average total.
+  const HOOPS = { NBA: { sd_m: 12, sd_t: 18, t: 228, reg: 2880 }, NCAAB: { sd_m: 11, sd_t: 17, t: 145, reg: 2400 } };
+  function fitBasketball(L, lg) {
+    const B = HOOPS[lg] || HOOPS.NBA, out = { sd_t: B.sd_t, otF: 300 / B.reg, noLine: L.home_ml_p == null && L.spread == null && L.total == null };
+    const s0 = L.spread != null ? -L.spread : null, z1 = s0 != null ? ninv(1 - (L.spread_p ?? 0.5)) : null;
+    if (L.home_ml_p != null) {
+      const z0 = ninv(1 - clamp(L.home_ml_p, 0.005, 0.995));
+      out.sd_m = s0 != null && Math.abs(s0) >= 1 && (z1 - z0) * s0 > 0.05 ? clamp(s0 / (z1 - z0), 0.7 * B.sd_m, 1.3 * B.sd_m) : B.sd_m;
+      out.mu_m = -z0 * out.sd_m;
+    } else if (s0 != null) { out.sd_m = B.sd_m; out.mu_m = s0 - z1 * B.sd_m; }
+    else { out.sd_m = B.sd_m; out.mu_m = 0; }
+    out.mu_t = L.total != null ? L.total - B.sd_t * ninv(1 - (L.over_p ?? 0.5)) : B.t;
+    return out;
+  }
+  // live: {state, home, away, frac (share of regulation left; an OT period = 5 min of it), wp}. The rest of the game
+  // = its expected points × f, noise × √f, so a total already passed is certain and a final margin is exact at f = 0.
+  // ESPN's win % (possession, fouls, lineups) moves the margin's centre, by at most 2 SD of what's left, and not once it
+  // calls the game (≤1% / ≥99%): from there the score rules. A tie at the end plays 5-minute overtimes.
+  function simBasketball(fit, live, n, R) {
+    const H = new Float32Array(n), A = new Float32Array(n);
+    if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0, winOnly: true }; }
+    const pre = live.state !== "in";
+    const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
+    const f = pre ? 1 : clamp(live.frac ?? 1, 0, 1);
+    const sdR = fit.sd_m * Math.sqrt(f), sdTR = fit.sd_t * Math.sqrt(f), muTR = fit.mu_t * f;
+    let muR = fit.mu_m * f;
+    if (!pre && live.wp != null && live.wp > 0.01 && live.wp < 0.99 && sdR > 0) muR = clamp(sdR * ninv(live.wp) - curM, muR - 2 * sdR, muR + 2 * sdR);
+    const sdO = fit.sd_m * Math.sqrt(fit.otF), sdTO = fit.sd_t * Math.sqrt(fit.otF), muTO = fit.mu_t * fit.otF;
+    for (let i = 0; i < n; i++) {
+      const rm = muR + sdR * R.n(), rt = Math.max(Math.abs(rm), muTR + sdTR * R.n(), 0);
+      let h = curH + Math.max(0, Math.round((rt + rm) / 2)), a = curA + Math.max(0, Math.round((rt - rm) / 2));
+      for (let k = 0; h === a && k < 4; k++) {   // overtime
+        const om = sdO * R.n(), ot = Math.max(Math.abs(om), muTO + sdTO * R.n(), 0);
+        h += Math.max(0, Math.round((ot + om) / 2)); a += Math.max(0, Math.round((ot - om) / 2));
+      }
+      if (h === a) { if (R.u() < 0.5) h++; else a++; }
+      H[i] = h; A[i] = a;
+    }
+    return { H, A, f, winOnly: true };
+  }
+
+  // ---------- baseball (MLB) ----------
+  // Runs per side ~ Poisson(rate × s × G), s = outs left / 27, G ~ Gamma(4s, 1/4s) (runs come in bunches: variance ≈ 2 ×
+  // the mean over any stretch of innings, team-game SD ≈ 3). Rates reproduce the 2-way ML and the total's over price
+  // (no line: 8.5, 50/50). A tie once the outs run out = extra innings: +1 run to one side, home with its share of the rates.
+  const MLB_K = 4;
+  function nbPmf(mu, K, k = MLB_K) { const p = new Float64Array(K + 1), q = mu / (k + mu); p[0] = Math.pow(1 - q, k); for (let x = 1; x <= K; x++) p[x] = p[x - 1] * (x - 1 + k) / x * q; return p; }
+  const gammaAny = (R, k, theta) => (k >= 1 ? gammaDraw(R, k, theta) : gammaDraw(R, k + 1, theta) * Math.pow(R.u(), 1 / k));
+  // P(home wins), P(final total > line) with lh / la runs still to come (Gamma shapes kh / ka); dh = home lead now, tot = runs so far.
+  function baseballProbs(lh, la, line, dh = 0, tot = 0, qh = lh + la > 0 ? lh / (lh + la) : 0.5, kh = MLB_K, ka = MLB_K) {
+    const K = 30, ph = nbPmf(lh, K, kh), pa = nbPmf(la, K, ka);
+    let pHome = 0, pOver = 0;
+    for (let i = 0; i <= K; i++) for (let j = 0; j <= K; j++) {
+      const x = ph[i] * pa[j], m = dh + i - j;
+      if (m > 0) pHome += x; else if (m === 0) pHome += qh * x;
+      if (tot + i + j + (m === 0 ? 1 : 0) > line) pOver += x;
+    }
+    return [pHome, pOver];
+  }
+  const baseballFits = new Map();
+  function fitBaseball(L) {
+    const ml = clamp(L.home_ml_p ?? 0.5, 0.03, 0.97), line = L.total ?? 8.5, over = clamp(L.total != null ? L.over_p ?? 0.5 : 0.5, 0.03, 0.97);
+    const key = `${ml}|${line}|${over}`;
+    if (baseballFits.has(key)) return baseballFits.get(key);
+    let mu = line, r = 0.5;
+    for (let it = 0; it < 30; it++) {
+      const mu0 = mu, r0 = r;
+      let lo = 0.05, hi = 0.95;
+      for (let k = 0; k < 40; k++) { r = (lo + hi) / 2; if (baseballProbs(mu * r, mu * (1 - r), line)[0] < ml) lo = r; else hi = r; }
+      lo = 1; hi = 20;
+      for (let k = 0; k < 40; k++) { mu = (lo + hi) / 2; if (baseballProbs(mu * r, mu * (1 - r), line)[1] < over) lo = mu; else hi = mu; }
+      if (Math.abs(mu - mu0) < 1e-5 && Math.abs(r - r0) < 1e-6) break;
+    }
+    const fit = { lh: mu * r, la: mu * (1 - r), noLine: L.home_ml_p == null && L.total == null };
+    baseballFits.set(key, fit);
+    return fit;
+  }
+  // live: {state, home, away, outsLeft: {home, away} (else frac × 27 each), wp}. ESPN's win % (1–99%) tilts the rates
+  // still to come (home × t, away ÷ t) so the ML matches it (it knows the runners on base).
+  function simBaseball(fit, live, n, R) {
+    const H = new Float32Array(n), A = new Float32Array(n);
+    if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0, winOnly: true }; }
+    const pre = live.state !== "in", curH = pre ? 0 : live.home, curA = pre ? 0 : live.away;
+    const o = pre ? { home: 27, away: 27 } : live.outsLeft || { home: 27 * clamp(live.frac ?? 1, 0, 1), away: 27 * clamp(live.frac ?? 1, 0, 1) };
+    const lh = fit.lh * o.home / 27, la = fit.la * o.away / 27, kh = MLB_K * o.home / 27, ka = MLB_K * o.away / 27;
+    const qt = (t) => fit.lh * t / (fit.lh * t + fit.la / t), runs = (lam, k) => (lam > 0 ? poisDraw(R, lam * gammaAny(R, k, 1 / k)) : 0);
+    let t = 1;
+    if (!pre && live.wp != null && live.wp > 0.01 && live.wp < 0.99 && lh + la > 0) {
+      let lo = -3, hi = 3;
+      for (let k = 0; k < 30; k++) { const m = (lo + hi) / 2, e = Math.exp(m); if (baseballProbs(lh * e, la / e, 0, curH - curA, 0, qt(e), kh, ka)[0] < live.wp) lo = m; else hi = m; }
+      t = Math.exp((lo + hi) / 2);
+    }
+    const qh = qt(t);
+    for (let i = 0; i < n; i++) {
+      let h = curH + runs(lh * t, kh), a = curA + runs(la / t, ka);
+      if (h === a) { if (R.u() < qh) h++; else a++; }
+      H[i] = h; A[i] = a;
+    }
+    return { H, A, f: (o.home + o.away) / 54, winOnly: true };
+  }
+
   function poisAtLeast(lam, k) { if (k <= 0) return 1; let term = Math.exp(-lam), cdf = term; for (let j = 1; j < k; j++) { term *= lam / j; cdf += term; } return clamp(1 - cdf, 0, 1); }
   function poisLam(pOver, line) {   // lambda with P(N > line) = pOver
     const k = Math.floor(line) + 1; let lo = 1e-4, hi = 20;
@@ -159,17 +262,18 @@
   }
   const COUNT_STATS = new Set(["td", "pass_tds", "goals", "assists", "points"]);
   // P(prop leg wins) given the stat so far x and the share of the game left f. Pregame: the leg's own fair p.
-  function propProb(leg, x, f, post) {
+  // hoops: basketball stats (points 25+ etc.) are too spread out for a Poisson count, so normal with SD 1.4·√line.
+  function propProb(leg, x, f, post, hoops) {
     const line = Number(leg.line ?? 0.5), over = (leg.ou || "over") === "over";
     if (post) return (over ? x > line : x < line) ? 1 : x === line ? 0.5 : 0;
     const p0 = leg.p ?? 0.5, pOver0 = over ? p0 : 1 - p0;
     let pOver;
-    if (COUNT_STATS.has(leg.stat)) {
+    if (COUNT_STATS.has(leg.stat) && !hoops) {
       const need = Math.floor(line) + 1 - x;
       pOver = need <= 0 ? 1 : poisAtLeast(poisLam(pOver0, line) * f, need);
     } else {
       const yards = /yds/.test(leg.stat || "");
-      const sd0 = yards ? Math.max(12, 0.5 * line) : Math.max(1.3, 0.35 * line + 0.8);
+      const sd0 = hoops ? Math.max(1.3, 1.4 * Math.sqrt(line)) : yards ? Math.max(12, 0.5 * line) : Math.max(1.3, 0.35 * line + 0.8);
       const mu0 = line + sd0 * ninv(clamp(pOver0, 0.01, 0.99));
       if (x > line) pOver = 1;
       else if (f <= 0.003) pOver = 0;
@@ -179,7 +283,7 @@
   }
 
   // positions: { games: {key: G}, bets: [...], n, seed, bonusValue }
-  //   G: {kind:"football"|"hockey"|"binary"|"none", fit, live:{state,home,away,secLeft,period,wp}, homeP, maxLead:{home,away},
+  //   G: {kind:"football"|"hockey"|"basketball"|"baseball"|"binary"|"none", fit, live:{state,home,away,secLeft,period,wp,frac,outsLeft}, homeP, maxLead:{home,away},
 //      stats:{player: {stat: x}}, playerTeam:{player: team abbreviation}, g: ESPN game}
   //   bet: {id, cash, payout, refund, fixedPL (settled) | legs:[{g, leg}] | flatP}
   // Each leg maps to a shared "outcome" (e.g. home covers -9.5), so bets on the same thing share one draw.
@@ -203,6 +307,8 @@
     for (const [key, G] of Object.entries(pos.games)) {
       if (G.kind === "football") sims[key] = simFootball(G.fit, G.live, n, R);
       else if (G.kind === "hockey") sims[key] = simHockey(G.fit, G.live, n, R);
+      else if (G.kind === "basketball") sims[key] = simBasketball(G.fit, G.live, n, R);
+      else if (G.kind === "baseball") sims[key] = simBaseball(G.fit, G.live, n, R);
       else if (G.live && G.live.state === "post") sims[key] = { H: new Float32Array(n).fill(G.live.home), A: new Float32Array(n).fill(G.live.away), f: 0 };
       else if (G.kind === "binary" && G.homeP != null) { const hw = new Uint8Array(n); for (let i = 0; i < n; i++) hw[i] = R.u() < G.homeP ? 1 : 0; sims[key] = { hw }; }
       else sims[key] = {};
@@ -247,8 +353,8 @@
         else if (spec.type === "tt") v = cmpArr((i) => (spec.side === "home" ? H[i] : A[i]) - spec.line);
         else if (spec.type === "lead") {
           const led = G.maxLead && G.maxLead[spec.side] >= spec.N;
-          // betsim's football heuristic for "led by N, then lost", scaled by time left. Hockey: winners only.
-          const scale = S.hockey ? 0 : 0.42 * Math.exp(-(spec.N - 7) / 6) * (S.f ?? 1);
+          // betsim's football heuristic for "led by N, then lost", scaled by time left. Hockey, basketball, baseball: winners only.
+          const scale = S.hockey || S.winOnly ? 0 :0.42 * Math.exp(-(spec.N - 7) / 6) * (S.f ?? 1);
           v = new Int8Array(n);
           for (let i = 0; i < n; i++) {
             const m = spec.side === "home" ? H[i] - A[i] : A[i] - H[i];
@@ -261,8 +367,8 @@
       else if (spec.type === "prop") {
         const st =(G.stats || {})[(spec.leg.player || "").toLowerCase()] || {};
         const post = G.live && G.live.state === "post";
-        const f = G.live && G.live.state === "in" ? (S.f ?? clamp((G.live.secLeft ?? 3600) / 3600, 0, 1)) : 1;
-        const p = propProb(spec.leg, st[spec.leg.stat] ?? 0, f, post);
+        const f = G.live && G.live.state === "in" ? (S.f ?? G.live.frac ?? clamp((G.live.secLeft ?? 3600) / 3600, 0, 1)) : 1;
+        const p = propProb(spec.leg, st[spec.leg.stat] ?? 0, f, post, !!(G.g && HOOPS[G.g.league]));
         v = drawArr(p); est = !post;
       }
       if (!v) { v = drawArr(pYes ?? 0.5); est = true; }
@@ -407,7 +513,8 @@
     return out.sort((a, b) => b.score - a.score);
   }
 
-  root.LiveModel = { ncdf, ninv, fitFootball, simFootball, fitHockey, simHockey, hockeyProbs, propProb, run, summarize, extremes, cheer, rng, legOutcome };
+  root.LiveModel = { ncdf, ninv, fitFootball, simFootball, fitHockey, simHockey, hockeyProbs, fitBasketball, simBasketball, fitBaseball, simBaseball, baseballProbs,
+    propProb, run, summarize, extremes, cheer, rng, legOutcome };
 })(typeof window !== "undefined" ? window : globalThis);
 
 // ===================== bets + ESPN -> model inputs =====================
@@ -415,8 +522,17 @@
   const M = root.LiveModel;
   const ESPN = { NFL: "football/nfl", CFB: "football/college-football", MLB: "baseball/mlb", NHL: "hockey/nhl", NBA: "basketball/nba", NCAAB: "basketball/mens-college-basketball" };
   const ESPN_GROUPS = { CFB: "&groups=80", NCAAB: "&groups=50" };
-  const FOOTBALL = new Set(["NFL", "CFB"]);
-  const SCORED = new Set([...FOOTBALL, "NHL"]);   // leagues with a score model (the rest are win/lose)
+  const FOOTBALL = new Set(["NFL", "CFB"]), HOOPS = new Set(["NBA", "NCAAB"]);
+  const SCORED = new Set([...FOOTBALL, "NHL", ...HOOPS, "MLB"]);   // leagues with a score model (the rest are win/lose)
+  const REG_SEC = { NFL: 3600, CFB: 3600, NHL: 3600, NBA: 2880, NCAAB: 2400 };   // regulation seconds
+  // MLB outs left per side: Top 7th, 1 out → away 2 + 2 innings × 3 = 8, home 9. Extra innings count as the 9th.
+  function mlbOutsLeft(inning, half, outs) {
+    const rest = Math.max(0, 9 - (inning || 1)) * 3, k = Math.min(3, Math.max(0, Number(outs) || 0));
+    const h = /^\s*b/i.test(half) ? "bot" : /^\s*m/i.test(half) ? "mid" : /^\s*e/i.test(half) ? "end" : "top";
+    return { away: rest + (h === "top" ? 3 - k : 0), home: rest + (h === "top" || h === "mid" ? 3 : h === "bot" ? 3 - k : 0) };
+  }
+  // Share of the game left: clock leagues = secLeft / regulation (an OT period counts as its own seconds of it), MLB = outs / 54.
+  const fracOf = (league, secLeft, outsLeft) => outsLeft ? (outsLeft.home + outsLeft.away) / 54 : secLeft != null && REG_SEC[league] ? Math.min(1, secLeft / REG_SEC[league]) : null;
   // Betting weeks run Tuesday–Monday, counted from each NFL season's opening Tuesday.
   const WEEK_ANCHORS = ["2026-09-08", "2027-09-07", "2028-09-05"];
   function num(v) { if (v == null || v === "") return null; const n = Number(v); return Number.isFinite(n) ? n : null; }
@@ -434,6 +550,10 @@
     if (FOOTBALL.has(league) && state === "in") secLeft = period <= 4 ? (4 - period) * 900 + clk : 0;
     // NHL scoreboard clock counts down; OT counts only its own minutes, a shootout (period 5) is over for props.
     if (league === "NHL" && state === "in") secLeft = period <= 3 ? (3 - period) * 1200 + clk : period === 4 ? clk : 0;
+    // Basketball clock counts down: NBA 4 × 12 min, NCAAB 2 × 20 min halves; an OT period counts only its own 5 minutes.
+    if (HOOPS.has(league) && state === "in") { const q = league === "NBA" ? 4 : 2; secLeft = period <= q ? (q - period) * REG_SEC[league] / q + clk : clk; }
+    // MLB: half from shortDetail ("Top 5th", "Bot 5th", "Mid 5th", "End 5th"), outs from the situation.
+    const outsLeft = league === "MLB" && state === "in" ? mlbOutsLeft(period, stt.type?.shortDetail || stt.type?.detail || "", c.situation?.outs) : null;
     const prob = c.situation?.lastPlay?.probability;
     return {
       id: e.id, league, date: e.date, state, detail: stt.type?.shortDetail || "",
@@ -441,6 +561,7 @@
       homeName: home.team.displayName, awayName: away.team.displayName,
       homeScore: num(home.score) ?? 0, awayScore: num(away.score) ?? 0, secLeft, period: state === "in" ? period : null,
       wp: state === "in" && prob && prob.homeWinPercentage != null ? prob.homeWinPercentage : null,
+      frac: state === "in" ? fracOf(league, secLeft, outsLeft) : null, outsLeft,
     };
   }
 
@@ -488,10 +609,14 @@
       if (wpById.has(String(p.id))) wp = wpById.get(String(p.id));
       const period = p.period?.number || 0, [mm, ss] = String(p.clock?.displayValue || "0:00").split(":").map(Number);
       const el = (mm || 0) * 60 + (ss || 0);
+      // Basketball clocks count down too, "45.3" under a minute; the period's own seconds in OT.
+      const q = league === "NBA" ? 4 : 2, bs = /:/.test(p.clock?.displayValue || "") ? el : Number(p.clock?.displayValue) || 0;
       const secLeft = FOOTBALL.has(league) ? (period <= 4 ? (4 - period) * 900 + el : 0)
-        : league === "NHL" ? (period <= 3 ? (3 - period) * 1200 + Math.max(0, 1200 - el) : period === 4 ? Math.max(0, 300 - el) : 0) : null;
-      const detail = league === "MLB" ? `${p.period?.type || ""} ${period}`.trim() : `${league === "NHL" ? "P" : "Q"}${period} ${p.clock?.displayValue || ""}`.trim();
-      out.push({ t: Date.parse(p.wallclock), home: num(p.homeScore) ?? 0, away: num(p.awayScore) ?? 0, secLeft, period, wp, detail });
+        : league === "NHL" ? (period <= 3 ? (3 - period) * 1200 + Math.max(0, 1200 - el) : period === 4 ? Math.max(0, 300 - el) : 0)
+        : HOOPS.has(league) ? (period <= q ? (q - period) * REG_SEC[league] / q + bs : bs) : null;
+      const outsLeft = league === "MLB" ? mlbOutsLeft(period, p.period?.type || "", p.outs) : null;   // at-bat's outs: a play early
+      const detail = league === "MLB" ? `${p.period?.type || ""} ${period}`.trim() : `${league === "NHL" ? "P" : league === "NCAAB" ? "H" : "Q"}${period} ${p.clock?.displayValue || ""}`.trim();
+      out.push({ t: Date.parse(p.wallclock), home: num(p.homeScore) ?? 0, away: num(p.awayScore) ?? 0, secLeft, period, wp, detail, frac: fracOf(league, secLeft, outsLeft), outsLeft });
     }
     return out.sort((a, b) => a.t - b.t);
   }
@@ -503,12 +628,12 @@
     for (const [id, g] of st.games) {
       const tl = timelines.get(id) || [], start = tl.length ? tl[0].t : Date.parse(g.date), end = tl.length ? tl[tl.length - 1].t : Date.parse(g.date) + 3.5 * 3600e3;
       let x;
-      if (T < start) x = { ...g, state: "pre", homeScore: 0, awayScore: 0, secLeft: null, period: null, wp: null };
+      if (T < start) x = { ...g, state: "pre", homeScore: 0, awayScore: 0, secLeft: null, period: null, wp: null, frac: null, outsLeft: null };
       else if (g.state === "post" && T >= end) x = g;
       else {
         let k = -1; while (k + 1 < tl.length && tl[k + 1].t <= T) k++;
-        const p = tl[k] || { home: 0, away: 0, secLeft: FOOTBALL.has(g.league) || g.league === "NHL" ? 3600 : null, period: 1, wp: null };
-        x = { ...g, state: "in", homeScore: p.home, awayScore: p.away, secLeft: p.secLeft, period: p.period, wp: p.wp, detail: p.detail || "In progress" };
+        const p = tl[k] || { home: 0, away: 0, secLeft: REG_SEC[g.league] ?? null, period: 1, wp: null, frac: 1, outsLeft: null };
+        x = { ...g, state: "in", homeScore: p.home, awayScore: p.away, secLeft: p.secLeft, period: p.period, wp: p.wp, frac: p.frac ?? null, outsLeft: p.outsLeft ?? null, detail: p.detail || "In progress" };
       }
       games.set(id, x);
       const sum = st.summaries.get(id);
@@ -552,11 +677,17 @@
       return null;
     }
     const normName = (x) => (x || "").toLowerCase().replace(/[^a-z0-9 ]/g, "").trim();
+    // Odds API row for an ESPN game: same league, commence within 3 h of ESPN's start (a series replays the same matchup
+    // on back-to-back days), then full names, else both teams' last words ("LA Clippers" / "Los Angeles Clippers") and only
+    // if exactly one row fits.
+    const lastWordMatch = (a, b) => !!a && !!b && (a.endsWith(b.split(" ").pop()) || b.endsWith(a.split(" ").pop()));
     function lineFor(g) {
-      const hn = normName(g.homeName), an = normName(g.awayName);
-      return st.lines.find((r) => r.league === g.league && normName(r.home) === hn && normName(r.away) === an)
-        || st.lines.find((r) => r.league === g.league && Math.abs(Date.parse(r.commence_time) - Date.parse(g.date)) < 3 * 3600e3 &&
-             (normName(r.home).endsWith(hn.split(" ").pop()) || hn.endsWith(normName(r.home).split(" ").pop())));
+      const hn = normName(g.homeName), an = normName(g.awayName), t = Date.parse(g.date);
+      const near = st.lines.filter((r) => r.league === g.league && Math.abs(Date.parse(r.commence_time) - t) < 3 * 3600e3);
+      const exact = near.find((r) => normName(r.home) === hn && normName(r.away) === an);
+      if (exact) return exact;
+      const loose = near.filter((r) => lastWordMatch(normName(r.home), hn) && lastWordMatch(normName(r.away), an));
+      return loose.length === 1 ? loose[0] : undefined;
     }
     function gameLine(g, legsOnGame) {
       // Field by field: Odds API line, else the bets' own fair prices, else ESPN's DraftKings line.
@@ -605,7 +736,7 @@
             const g = findGame(l);
             const key = g ? g.id : `${l.league}:${l.away}@${l.home}`;
             if (!games[key]) {
-              const live = g ? (REPLAY ? { state: "pre" } : { state: g.state, home: g.homeScore, away: g.awayScore, secLeft: g.secLeft, period: g.period, wp: g.wp }) : { state: "pre" };
+              const live = g ? (REPLAY ? { state: "pre" } : { state: g.state, home: g.homeScore, away: g.awayScore, secLeft: g.secLeft, period: g.period, wp: g.wp, frac: g.frac, outsLeft: g.outsLeft }) : { state: "pre" };
               const sum = REPLAY ? null : g && st.summaries.get(g.id);
               const G = { live, maxLead: sum?.maxLead, stats: sum?.stats, playerTeam: sum?.playerTeam, kind: "none", g };
               if (g) {
@@ -613,6 +744,8 @@
                 lineSrc[key] = src;
                 if (FOOTBALL.has(g.league)) { G.kind = "football"; G.fit = M.fitFootball(L, g.league === "CFB" ? 16 : 13); }
                 else if (g.league === "NHL") { G.kind = "hockey"; G.fit = M.fitHockey(L); }
+                else if (HOOPS.has(g.league)) { G.kind = "basketball"; G.fit = M.fitBasketball(L, g.league); }
+                else if (g.league === "MLB") { G.kind = "baseball"; G.fit = M.fitBaseball(L); }
                 else { G.kind = "binary"; G.homeP = live.state === "in" && g.wp != null ? g.wp : L.home_ml_p ?? null; }
               }
               games[key] = G;
@@ -647,6 +780,7 @@
   // Returns [{id, p, src: "fresh"|"stale"|"none", age (min from line fetch to kickoff, worst leg), why}]; bets with a
   // game not started yet are left out (a later run grades them).
   const CLOSE_KINDS = new Set(["ml", "spread", "total", "team_total"]), LIVE_GRACE_MIN = 15;
+  const CLV_SCORED = new Set([...FOOTBALL, "NHL"]);   // spreads/totals graded here only (the NBA/NCAAB/MLB models are new, 10/20/2026)
   function closeProbs(st, bets, now, today, freshMin = 20, n = 100000) {
     const preGames = new Map([...st.games].map(([id, g]) => [id, { ...g, state: "pre", homeScore: 0, awayScore: 0, secLeft: null, period: null, wp: null }]));
     const C = make({ games: preGames, summaries: new Map(), lines: st.lines || [] }, null);
@@ -662,7 +796,7 @@
         first = Math.min(first, start);
         if (!CLOSE_KINDS.has(l.kind)) { why = why || `${l.kind} leg`; continue; }
         if (l.lead_by) { why = why || "Early Win leg"; continue; }
-        if (!SCORED.has(g.league) && l.kind !== "ml") { why = why || `${g.league} ${l.kind} (no score model)`; continue; }
+        if (!CLV_SCORED.has(g.league) && l.kind !== "ml") { why = why || `${g.league} ${l.kind} (no score model)`; continue; }
         const need = FOOTBALL.has(g.league) ? ["home_ml_p", "spread", "spread_p", "total", "over_p"] : g.league === "NHL" ? ["home_ml_p", "total", "over_p"] : ["home_ml_p"];
         if (!r || need.some((k) => r[k] == null)) { why = why || "no Odds API line"; continue; }
         age = Math.max(age, (Date.parse(r.commence_time) - Date.parse(r.fetched_at)) / 60000);

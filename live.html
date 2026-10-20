@@ -888,7 +888,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const reg = league === "NCAAB" ? 2 : 4;
     return i < reg ? String(i + 1) : i === reg ? "OT" : "OT" + (i - reg + 1);
   }
-  // Home win chance: ESPN's when it has one (football), else the page's own simulation (hockey, binary sports), else none.
+  // Home win chance: ESPN's when it has one, else the page's own simulation (NHL, or any game without ESPN's), else none.
   function homeWinP(g, res, key) {
     if (g.wp != null) return { p: g.wp, src: "ESPN" };
     const S = res.sims[key]; if (!S) return null;
@@ -923,7 +923,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     if (FROZEN || g.state === "pre") return null;
     const pts = (st.series.get(g.id) || []).map((p) => p.slice());
     if (g.state === "in" && g.wp != null) {
-      const t = g.secLeft != null ? (3600 - g.secLeft) / 60 : pts.length ? pts[pts.length - 1][0] : 0;
+      const t = g.secLeft != null && LiveCore.FOOTBALL.has(g.league) ? (3600 - g.secLeft) / 60 : pts.length ? pts[pts.length - 1][0] : 0;
       if (!pts.length || t > pts[pts.length - 1][0] + 0.01) pts.push([t, g.wp]); else pts[pts.length - 1][1] = g.wp;
     }
     if (!pts.length) return null;
@@ -1039,16 +1039,18 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
 
   // --- hedge triggers (same math as before; now shown on the trigger's own game card) ---
-  function hedgeState(t) {
+  // Win chance: ESPN's, else this page's model (NHL has no ESPN win %), the same number the game card shows.
+  function hedgeState(t, res) {
     const g = findGame(t), home = t.our_side === "home";
     const ours = home ? t.home : t.away, theirs = home ? t.away : t.home;
-    const wp = g && g.state === "in" && g.wp != null ? (home ? g.wp : 1 - g.wp) : null;
+    const hw = g && g.state === "in" ? (g.wp != null ? { p: g.wp, src: "ESPN" } : res ? homeWinP(g, res, g.id) : null) : null;
+    const wp = hw ? (home ? hw.p : 1 - hw.p) : null, src = hw ? hw.src : null;
     const at = num(t.live_p) ?? 0.85, hit = wp != null && wp >= at && wp < 0.995;
-    return { t, g, ours, theirs, wp, at, hit, home, H: hedgeAt(t, hit ? wp : at) };
+    return { t, g, ours, theirs, wp, src, at, hit, home, H: hedgeAt(t, hit ? wp : at) };
   }
   function hedgeCard(sx, league) {
-    const { g, ours, theirs, wp, at, hit, H } = sx;
-    const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (ESPN)` : "";
+    const { g, ours, theirs, wp, src, at, hit, H } = sx;
+    const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
     const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
       : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
     const pct = wp == null ? 0 : Math.min(wp, 1) * 100;
@@ -1125,7 +1127,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       if (!list.includes(b)) list.push(b);
     });
     const hedgeBy = new Map();
-    for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) { const sx = hedgeState(t); if (sx.g) (hedgeBy.get(sx.g.id) || hedgeBy.set(sx.g.id, []).get(sx.g.id)).push(sx); }
+    for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) { const sx = hedgeState(t, res); if (sx.g) (hedgeBy.get(sx.g.id) || hedgeBy.set(sx.g.id, []).get(sx.g.id)).push(sx); }
 
     const rank = (k) => { const g = st.games.get(k); return !g ? 1 : g.state === "in" ? 0 : g.state === "pre" ? 1 : 2; };
     const order = [...cards.keys()].filter((k) => cards.get(k).straights.length + cards.get(k).parlays.length)
@@ -1225,9 +1227,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
     // Live-hedge triggers. Ones whose game has a card are shown there (under its Hedge triggers); only the rest stay here.
     let anyHit = false;
-    const trigs = (plan.triggers || []).map(hedgeState).filter((sx) => { anyHit = anyHit || sx.hit; return !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
-      const { t, g, ours, theirs, wp, at, hit, H } = sx;
-      const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (ESPN)` : "";
+    const trigs = (plan.triggers || []).map((t) => hedgeState(t, res)).filter((sx) => { anyHit = anyHit || sx.hit; return !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
+      const { t, g, ours, theirs, wp, src, at, hit, H } = sx;
+      const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
       const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
         : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
       return h("div", { class: "trig" + (hit ? " hit" : "") },
@@ -1242,7 +1244,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       h("span", { class: "plannums num" }, nums),
       h("div", {}, ...rows),
       ...(trigs.length ? [h("div", {}, h("h2", { style: "font-size:14.5px;margin:6px 0 2px" }, "Live hedges"), ...trigs,
-        h("p", { class: "sub", style: "margin-top:6px" }, "ESPN's win % is an estimate. Check the real price at Novig or Kalshi first; the stake scales with it. Hedging at a fair price costs almost nothing in EV. It trades upside for certainty."))] : []));
+        h("p", { class: "sub", style: "margin-top:6px" }, "The win % (ESPN's, else this page's model) is an estimate. Check the real price at Novig or Kalshi first; the stake scales with it. Hedging at a fair price costs almost nothing in EV. It trades upside for certainty."))] : []));
   }
 
   function renderSettled(P, settled) {
