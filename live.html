@@ -2,6 +2,8 @@
 <title>Live Bets</title>
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png"><link rel="apple-touch-icon" href="apple-touch-icon.png">
 <style>
+/* Scroll anchoring off: render() keeps the reader's place itself (Safari has none), so Chrome mustn't correct twice. */
+html{overflow-anchor:none}
 /* Layout: phone-first single column. Header (status doubles as the error notice) + Today/Week and league toggles, headline odds, KPI grid, outcome histogram, cheer list, game cards, plan, settled list. */
 :root{
   --page:#f4f4f1; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#7d7b75;
@@ -529,7 +531,25 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   // ---------- render ----------
   function kpi(label, value, vcls, sub) { return h("div", { class: "kpi" }, h("span", { class: "k" }, label), h("span", { class: "v num " + (vcls || "") }, value), h("span", { class: "s" }, sub)); }
 
+  // Redraws swap whole cards. iPhone Safari has no scroll anchoring, so keep the reader's place by hand:
+  // note the first card on screen and where it sits, redraw, then scroll by however far it moved.
   function render() {
+    const a = scrollAnchor(); draw(); keepPlace(a);
+  }
+  function scrollAnchor() {
+    if (scrollY < 20) return null;
+    for (const el of document.querySelectorAll("#hero, #kpis, #histCard, #games > [data-k], #planCard, #settledCard")) {
+      const r = el.getBoundingClientRect();
+      if (r.height && r.bottom > 0) return { sel: el.id ? "#" + el.id : `#games > [data-k="${CSS.escape(el.dataset.k)}"]`, top: r.top };
+    }
+    return null;
+  }
+  function keepPlace(a) {
+    const el = a && document.querySelector(a.sel); if (!el) return;
+    const d = el.getBoundingClientRect().top - a.top; if (Math.abs(d) >= 1) window.scrollBy(0, d);
+  }
+
+  function draw() {
     const [a, z, , wk] = bounds();
     document.querySelectorAll("[data-mode]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.mode === mode)));
     $("#span").textContent = (REPLAY ? "Replay · " : AT ? "Point in time · " : "") + (mode === "day" ? fmtDay(a) : `Week ${wk} · ${fmtDay(a, { month: "short", day: "numeric" })}–${fmtDay(z, { month: "short", day: "numeric" })}`);
@@ -1138,7 +1158,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       const head = g ? [gameHeader(g, key, res), winChart(g)]
         : [h("div", { class: "g-title" }, meta0 ? meta0.game : key)];
       const src = P.lineSrc[key];
-      return h("section", { class: "card gcard" },
+      return h("section", { class: "card gcard", "data-k": key },
         ...head,
         g && SCORED.has(g.league) ? h("p", { class: "sub" }, src && src.length ? "Line from " + src.join(" + ") : "No line found: league-average scoring") : null,
         foldMain(key, fired ? "fired" : "", bar, subs));
@@ -1147,17 +1167,19 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     const acrossIds = across.slice().sort((a, b) => bySwing(item.get(a), item.get(b)));
     function acrossCard() {
       const t = totalsOf(acrossIds, ctx);
-      return h("section", { class: "card gcard" }, foldMain("across", "", [sumGroup("Across games", t), h("span", { class: "fhint" }, "Tap to see the parlays")],
+      return h("section", { class: "card gcard", "data-k": "across" }, foldMain("across", "", [sumGroup("Across games", t), h("span", { class: "fhint" }, "Tap to see the parlays")],
         [h("p", { class: "sub" }, "Parlays with legs in 2+ games. They also show inside each game's card."), ...acrossIds.map((id) => parlayRowG(id, null, ctx))]));
     }
     function otherCard() {
-      return h("section", { class: "card gcard" }, h("div", { class: "g-title" }, "Other bets"), h("div", {}, ...other.map((id) => betRow(P.meta.get(id), pbm.get(id)))));
+      return h("section", { class: "card gcard", "data-k": "other" }, h("div", { class: "g-title" }, "Other bets"), h("div", {}, ...other.map((id) => betRow(P.meta.get(id), pbm.get(id)))));
     }
 
     const live = order.filter((k) => rank(k) < 2), done = order.filter((k) => rank(k) === 2).reverse();   // finished: most recent first
     const nodes = [...live.map(gameCard), acrossIds.length ? acrossCard() : null, other.length ? otherCard() : null,
-      done.length ? h("div", { class: "g-divider" }, "Finished") : null, ...done.map(gameCard)];
-    $("#games").replaceChildren(...nodes.filter(Boolean));
+      done.length ? h("div", { class: "g-divider", "data-k": "finished" }, "Finished") : null, ...done.map(gameCard)];
+    const kids = nodes.filter(Boolean), box = $("#games");
+    if (kids.map((n) => n.outerHTML).join("") === box.innerHTML) return;   // nothing changed: leave the cards alone (no swap mid-scroll)
+    box.replaceChildren(...kids);
   }
 
   // P(final P/L above a line). Week plans start from banked − withdrawn, so their "black" line is the withdrawal.
@@ -1298,7 +1320,10 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     try { await loadLines(true); st.linesErr = null; } catch (e) { st.linesErr = e.message; }
     btn.disabled = false; btn.textContent = "Refresh lines"; render();
   });
-  let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(render, 150); });
+  // Only a width change needs a redraw (charts size to width). Phones fire resize whenever the address bar
+  // shrinks or grows during a scroll; redrawing then made the page jump (10/19/2026).
+  let rz, lastW = innerWidth;
+  window.addEventListener("resize", () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(render, 150); });
 
   refresh(true, LINES_ON_OPEN_MIN);   // opening the page = you're looking: lines no older than 10 min
   if (!FROZEN) {
