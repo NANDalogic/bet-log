@@ -445,14 +445,40 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     }));
   }
 
-  async function loadLines(refresh) {
+  function linesLeagues() {
     const leagues = new Set();
     for (const b of [...st.bets, ...unplacedAsBets(currentPlan())]) if (b.result === "Pending") for (const l of b.legs || []) if (ESPN[l.league]) leagues.add(l.league);
+    return leagues;
+  }
+  // First load reads the cached lines straight from the table (~0.2 s), so the page never waits on the live-lines function.
+  // That function makes ~7 database calls in a row (~2 s), and Supabase's gateway sometimes stalls a call for ~5 s (10/19/2026: one took 12 s).
+  async function loadCachedLines() {
+    const leagues = linesLeagues();
     if (!leagues.size) { st.linesInfo = { none: true }; return; }
-    const r = await fetch(`${SB_URL}/functions/v1/live-lines?leagues=${[...leagues].join(",")}${refresh ? "&refresh=1" : ""}`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+    st.lines = await sb(`live_lines?select=*&league=in.(${[...leagues].join(",")})&commence_time=gte.${isoT(Date.now() - 2 * DAY)}&order=commence_time`);
+  }
+  const LINES_TIMEOUT_MS = 10000;
+  async function loadLines(refresh) {
+    const leagues = linesLeagues();
+    if (!leagues.size) { st.linesInfo = { none: true }; return; }
+    let r;
+    try {
+      r = await fetch(`${SB_URL}/functions/v1/live-lines?leagues=${[...leagues].join(",")}${refresh ? "&refresh=1" : ""}`,
+        { headers: { apikey: SB_KEY }, cache: "no-store", signal: AbortSignal.timeout(LINES_TIMEOUT_MS) });
+    } catch (e) { throw new Error(e.name === "TimeoutError" ? `no answer in ${LINES_TIMEOUT_MS / 1000} s, using cached lines` : e.message); }
     const d = await r.json();
     if (!r.ok || d.error) throw new Error(d.error || "HTTP " + r.status);
     st.lines = d.rows || []; st.linesInfo = d;
+  }
+  // Runs beside the main refresh, never inside it: the page draws with what it has, then redraws when lines arrive.
+  let linesBusy = false;
+  async function linesInBackground(full, linesMax) {
+    if (linesBusy) return; linesBusy = true;
+    try {
+      if (full || !st.linesInfo) { try { await loadLines(false); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
+      if (linesMax != null && !REPLAY && linesAgeMin() >= linesMax) { try { await loadLines(true); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
+      if (!busy) { await loadSummaries(); render(); }   // if a main refresh is running, it draws when it ends
+    } finally { linesBusy = false; }
   }
   // Minutes since the stalest league's last Odds API pull (Infinity if one was never pulled). Drives auto-refresh.
   const LINES_ON_OPEN_MIN = 10, LINES_AUTO_MIN = 30;
@@ -1216,7 +1242,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     if (AT) { el.textContent = "Point in time: game lines as stored then; scores, clock and win % from ESPN's play-by-play. Props count once their game is final."; return; }
     const d = st.linesInfo;
     if (st.linesErr) { el.textContent = "Game lines: couldn't reach the lines service (" + st.linesErr + ")."; return; }
-    if (!d) { el.textContent = "Game lines: loading…"; return; }
+    if (!d) { el.textContent = st.lines.length ? "Game lines: cached, checking for newer ones…" : "Game lines: loading…"; return; }
     if (d.none) { el.textContent = "Game lines: no open bets need them."; btn.hidden = true; return; }
     btn.hidden = false;
     const parts = Object.entries(d.last_fetch || {}).map(([lg, t]) => `${lg} ${new Date(t).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}`);
@@ -1240,8 +1266,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       await loadGames();
       if (AT) await loadAt();
       else {
-        if (full || !st.linesInfo) { try { await loadLines(false); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
-        if (linesMax != null && !REPLAY && linesAgeMin() >= linesMax) { try { await loadLines(true); st.linesErr = null; } catch (e) { st.linesErr = e.message; } }
+        if (!st.linesInfo && !st.lines.length) { try { await loadCachedLines(); } catch {} }
+        linesInBackground(full, linesMax);   // not awaited
         await loadSummaries();
       }
       st.loaded = true; st.lastAt = Date.now();
