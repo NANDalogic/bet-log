@@ -496,8 +496,9 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
   function linesAgeMin() {
     const d = st.linesInfo;
-    if (!d || d.none || st.linesErr) return d && d.none ? 0 : Infinity;
-    const leagues = Object.entries(d.skipped || {}).filter(([, why]) => !/no open bets|no ODDS_API_KEY|weekly cap/.test(why)).map(([lg]) => lg)
+    if (!d || d.none) return d && d.none ? 0 : Infinity;
+    if (st.linesErr) return 0;   // an error never escalates to a paid refresh (audit 10/20); the next plain call clears it
+    const leagues = Object.entries(d.skipped || {}).filter(([, why]) => !/no open bets|no ODDS_API_KEY|weekly cap|kicked off|daily ceiling/.test(why)).map(([lg]) => lg)
       .concat((d.fetched || []).map((f) => f.league));
     if (!leagues.length) return 0;
     return Math.max(...leagues.map((lg) => d.last_fetch?.[lg] ? (Date.now() - Date.parse(d.last_fetch[lg])) / 60000 : Infinity));
@@ -1327,7 +1328,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   let rz, lastW = innerWidth;
   window.addEventListener("resize", () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(render, 150); });
 
-  refresh(true, LINES_ON_OPEN_MIN);   // opening the page = you're looking: lines no older than 10 min
+  refresh(true, inAutoWindow() ? LINES_ON_OPEN_MIN : null);   // opening the page in the window = you're looking: lines no older than 10 min
   if (!FROZEN) {
     let tick = 0;
     setInterval(() => {
@@ -1336,7 +1337,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       const live = [...st.games.values()].some((g) => g.state === "in");
       if (live || tick % 4 === 0) refresh(tick % 2 === 0, inAutoWindow() ? LINES_AUTO_MIN : null);   // ESPN every 30s while games are live (bets every 60s), else every 2 min; lines every 30 min
     }, 30000);
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true, LINES_ON_OPEN_MIN); });
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(true, inAutoWindow() ? LINES_ON_OPEN_MIN : null); });   // tab returns at 4 AM used to pull lines
   }
 })();
 </script>
