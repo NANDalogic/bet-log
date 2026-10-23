@@ -206,12 +206,19 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 .g-sl .txt{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-2)}
 .g-sl .txt b{color:var(--ink)}
 .g-sl.hit .txt span:first-child{color:var(--good);font-weight:650}
+.g-sl.bust .track i{background:var(--bad)}
+.g-sl.bust .txt span:first-child{color:var(--bad);font-weight:650}
 .g-stot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:9px 12px;border-radius:8px;background:var(--chip);font-size:13.5px;font-weight:600}
 .g-stot b.pos{color:var(--good)} .g-stot b.neg{color:var(--bad)}
 .g-par{padding:9px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
 .g-par .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .g-par .t{font-size:14.5px}
 .legs{display:flex;flex-wrap:wrap;gap:6px}
+/* Parlay legs with a live stat: one row per leg, chip then its bar (bar under the chip on a phone) */
+.legs.stack{flex-direction:column;flex-wrap:nowrap;gap:8px}
+.g-lrow{display:grid;grid-template-columns:minmax(0,auto) minmax(140px,1fr);gap:4px 12px;align-items:center}
+.g-lrow > .g-leg{justify-self:start}
+@container (max-width:540px){.g-lrow{grid-template-columns:minmax(0,1fr)}}
 .g-leg{display:inline-flex;align-items:center;gap:6px;padding:3px 8px;border-radius:7px;font-size:13px;color:var(--muted);border:1px solid transparent;background:var(--chip)}
 .g-leg .lp{font-size:12px}
 .g-leg.won .lp{color:var(--good)}
@@ -971,25 +978,26 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return out;
   }
   const wlEl = (win, risk) => h("span", { class: "g-wl num" }, h("b", { class: "pos" }, money0(win)), " / ", h("b", { class: "neg" }, money0(-risk)));
-  // Current number vs the line, for "over" legs that can be tracked: game total, team total, player stats (line above 0.5).
+  // Current number vs the line for legs that can be tracked: game total, team total, player stats (line above 0.5).
+  // Over: green once cleared. Under: red once it goes over the line, green when the game ends under it.
   function progress(l, gameKey, ctx) {
     const g = st.games.get(gameKey);
     if (!g || g.state === "pre" || FROZEN) return null;
-    const over = (l.ou || l.side || "over") === "over", line = Number(l.line);
-    if (!over || !Number.isFinite(line)) return null;
+    const under = (l.kind === "total" ? l.side : l.ou) === "under", line = Number(l.line);
+    if (!Number.isFinite(line)) return null;
     let cur = null, unit = "";
     if (l.kind === "total") { cur = g.homeScore + g.awayScore; unit = "pts"; }
     else if (l.kind === "team_total") { cur = l.side === "home" ? g.homeScore : g.awayScore; unit = "pts"; }
     else if (l.kind === "prop" && line > 0.5) {
-      const stt = ctx.P.games[gameKey]?.stats?.[(l.player || "").toLowerCase()];
-      if (!stt) return null;
-      cur = stt[l.stat] ?? 0; unit = STAT_LABEL[l.stat] || l.stat;
+      const all = ctx.P.games[gameKey]?.stats;   // ESPN lists a player only once he has a stat, so missing = 0 (the model reads it the same way)
+      if (!all) return null;
+      cur = all[(l.player || "").toLowerCase()]?.[l.stat] ?? 0; unit = STAT_LABEL[l.stat] || l.stat;
     }
     if (cur == null) return null;
-    const hit = cur >= line, pct = Math.min(cur / line, 1) * 100;
-    return h("div", { class: "g-sl" + (hit ? " hit" : "") },
-      h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), hit ? null : h("u", { style: `left:${pct}%` }), h("b", {})),
-      h("div", { class: "txt num" }, h("span", {}, hit ? "✓ " : "", h("b", {}, cur), " " + unit), h("span", {}, "line " + line)));
+    const hit = under ? g.state === "post" && cur < line : cur >= line, bust = under && cur > line, pct = Math.min(cur / line, 1) * 100;
+    return h("div", { class: "g-sl" + (hit ? " hit" : bust ? " bust" : "") },
+      h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), hit || bust ? null : h("u", { style: `left:${pct}%` }), h("b", {})),
+      h("div", { class: "txt num" }, h("span", {}, hit ? "✓ " : bust ? "✗ " : "", h("b", {}, cur), " " + unit), h("span", {}, (under ? "under " : "line ") + line)));
   }
   function statePill(m, it, x) {
     if (it.fixedPL != null) return h("span", { class: "pill " + (m.result === "Won" ? "won" : m.result === "Lost" ? "dead" : "") }, m.result);
@@ -1013,18 +1021,20 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   function parlayRowG(id, gameKey, ctx) {
     const { P, res } = ctx, m = P.meta.get(id), it = ctx.item.get(id), x = ctx.pbm.get(id), legs = m.legs || [];
     const settled = it.fixedPL != null;
+    const bars = legs.map((l) => progress(l, ctx.gkey(l), ctx));   // each leg's own game, so Across games legs get one too
     const legEls = legs.map((l, i) => {
       const L = it.legs && it.legs[i];
       const spec = L ? M.legOutcome(L.g, l, id, i) : null, o = spec ? res.outcomes.get(spec.key) : null;
       const p = o ? (spec.want ? o.p : 1 - o.p - o.push) : null;
       const here = gameKey != null && ctx.gkey(l) === gameKey;
-      return h("span", { class: "g-leg" + (here ? " here" : "") + (p != null && p >= 0.999 ? " won" : p != null && p <= 0.001 ? " dead" : "") },
+      const chip = h("span", { class: "g-leg" + (here ? " here" : "") + (p != null && p >= 0.999 ? " won" : p != null && p <= 0.001 ? " dead" : "") },
         chipify(legShort(l), l.league), p == null ? null : h("span", { class: "lp num" }, p >= 0.999 ? "✓" : p <= 0.001 ? "✗" : pctS(p)));
+      return bars.some(Boolean) ? h("div", { class: "g-lrow" }, chip, bars[i]) : chip;
     });
     return h("div", { class: "g-par" },
       h("div", { class: "top" }, h("div", {}, h("div", { class: "t" }, `${legs.length}-leg parlay`), h("div", { class: "meta num" }, betMeta(m, it))),
         h("div", { class: "right" }, statePill(m, it, x), settled ? h("span", { class: "g-wl num " + cls(it.fixedPL) }, money(it.fixedPL)) : wlEl(it.payout - it.cash, it.cash))),
-      h("div", { class: "legs" }, legEls));
+      h("div", { class: "legs" + (bars.some(Boolean) ? " stack" : "") }, legEls));
   }
   // Counts, +win / −lose (settled bets at their real P/L), and the chance the group ends in the black.
   function totalsOf(ids, ctx) {
@@ -1042,23 +1052,40 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
   // --- hedge triggers (same math as before; now shown on the trigger's own game card) ---
   // Win chance: ESPN's, else this page's model (NHL has no ESPN win %), the same number the game card shows.
+  // A trigger's P/L branches are saved with the plan, which assumes its picks get placed. Once none of the plan's picks on
+  // this game are still open, the branches come from the bets actually placed: the average night P/L in the sims where our
+  // side wins vs loses. Under $2 to hedge at the trigger = nothing riding on the winner, so the trigger is dropped (none).
+  function riding(g, res, home) {
+    const S = res && res.sims[g.id];
+    if (!S || !(S.H || S.hw)) return null;
+    let w = 0, l = 0, sw = 0, sl = 0;
+    for (let i = 0; i < res.n; i++) {
+      if (S.H && S.H[i] === S.A[i]) continue;
+      if ((S.H ? S.H[i] > S.A[i] : S.hw[i] === 1) === home) { w++; sw += res.pl[i]; } else { l++; sl += res.pl[i]; }
+    }
+    return w && l ? { good: sw / w, bad: sl / l } : null;
+  }
   function hedgeState(t, res) {
     const g = findGame(t), home = t.our_side === "home";
     const ours = home ? t.home : t.away, theirs = home ? t.away : t.home;
     const hw = g && g.state === "in" ? (g.wp != null ? { p: g.wp, src: "ESPN" } : res ? homeWinP(g, res, g.id) : null) : null;
     const wp = hw ? (home ? hw.p : 1 - hw.p) : null, src = hw ? hw.src : null;
     const at = num(t.live_p) ?? 0.85, hit = wp != null && wp >= at && wp < 0.995;
-    return { t, g, ours, theirs, wp, src, at, hit, home, H: hedgeAt(t, hit ? wp : at) };
+    const fromPlan = !!g && unplacedAsBets(currentPlan()).some((b) => b.legs.some((l) => findGame(l)?.id === g.id));
+    const br = fromPlan ? { good: num(t.pl_if_ours_wins), bad: num(t.pl_if_ours_loses) } : g ? riding(g, res, home) : null;
+    const none = !fromPlan && (!br || (br.good - br.bad) * (1 - at) < 2);
+    return { t, g, ours, theirs, wp, src, at, hit: hit && !none, home, fromPlan, none, H: br ? hedgeAt(br, hit ? wp : at) : null };
   }
   function hedgeCard(sx, league) {
-    const { g, ours, theirs, wp, src, at, hit, H } = sx;
+    const { g, ours, theirs, wp, src, at, hit, fromPlan, H } = sx;
     const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
-    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
-      : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
+    const why = fromPlan ? ` · assumes the plan's picks on this game get placed` : ` · from your placed bets, on average`;
+    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`
+      : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`;
     const pct = wp == null ? 0 : Math.min(wp, 1) * 100;
     return h("div", { class: "g-trg" + (hit ? " fired" : "") },
       h("div", { class: "top" }, h("div", { class: "t num" }, title), h("span", { class: "st" }, hit ? "HEDGE NOW" : "Armed")),
-      h("div", { class: "body num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · if ${theirs} wins: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}`),
+      h("div", { class: "body num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · if ${theirs} wins: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}${why}`),
       wp == null ? null : h("div", { class: "g-sl" }, h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), h("b", { style: `left:${at * 100}%;right:auto` })),
         h("div", { class: "txt num" }, h("span", {}, `${ours} now `, h("b", {}, pctS(wp))), h("span", {}, "trigger " + pctS(at)))));
   }
@@ -1129,7 +1156,7 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       if (!list.includes(b)) list.push(b);
     });
     const hedgeBy = new Map();
-    for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) { const sx = hedgeState(t, res); if (sx.g) (hedgeBy.get(sx.g.id) || hedgeBy.set(sx.g.id, []).get(sx.g.id)).push(sx); }
+    for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) { const sx = hedgeState(t, res); if (sx.g && !sx.none) (hedgeBy.get(sx.g.id) || hedgeBy.set(sx.g.id, []).get(sx.g.id)).push(sx); }
 
     const rank = (k) => { const g = st.games.get(k); return !g ? 1 : g.state === "in" ? 0 : g.state === "pre" ? 1 : 2; };
     const order = [...cards.keys()].filter((k) => cards.get(k).straights.length + cards.get(k).parlays.length)
@@ -1190,8 +1217,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   function pAbove(res, line) { let k = 0; for (let i = 0; i < res.n; i++) if (res.pl[i] > line + 0.005) k++; return k / res.n; }
 
   // Live hedge at win chance q for our side: bet the other side at its fair price so both outcomes pay the same.
-  function hedgeAt(t, q) {
-    const good = num(t.pl_if_ours_wins), bad = num(t.pl_if_ours_loses), d = 1 / (1 - q);
+  function hedgeAt({ good, bad }, q) {
+    const d = 1 / (1 - q);
     const stake = (good - bad) / d;
     return { good, bad, stake, locked: good - stake, odds: "+" + Math.round((d - 1) * 100) };
   }
@@ -1229,11 +1256,11 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
     // Live-hedge triggers. Ones whose game has a card are shown there (under its Hedge triggers); only the rest stay here.
     let anyHit = false;
-    const trigs = (plan.triggers || []).map((t) => hedgeState(t, res)).filter((sx) => { anyHit = anyHit || sx.hit; return !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
-      const { t, g, ours, theirs, wp, src, at, hit, H } = sx;
+    const trigs = (plan.triggers || []).map((t) => hedgeState(t, res)).filter((sx) => { anyHit = anyHit || sx.hit; return !sx.none && !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
+      const { g, ours, theirs, wp, src, at, hit, H } = sx;
       const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
-      const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} to lock ${money0(H.locked)}`
-        : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} locks ${money0(H.locked)}`;
+      const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`
+        : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`;
       return h("div", { class: "trig" + (hit ? " hit" : "") },
         h("span", { class: "tt num" }, (hit ? "⚠ " : "") + title),
         h("span", { class: "td num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · `,
