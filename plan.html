@@ -174,6 +174,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
 
 <div class="toast" id="toast" hidden></div>
 
+<script src="auth.js"></script>
 <script src="live-core.js"></script>
 <script>
 (() => {
@@ -255,12 +256,12 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   let selWeek = weekOf(selDay).start;
 
   async function sb(path) {
-    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+    const r = await Auth.fetch(`${SB_URL}/rest/v1/${path}`, { cache: "no-store" });
     if (!r.ok) throw new Error("database HTTP " + r.status);
     return r.json();
   }
   async function rpc(fn, body) {
-    const r = await fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { apikey: SB_KEY, "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
+    const r = await Auth.fetch(`${SB_URL}/rest/v1/rpc/${fn}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), cache: "no-store" });
     const d = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, error: d.message || "HTTP " + r.status };
     return d;
@@ -322,7 +323,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
     const leagues = new Set(dayLegs().map((l) => l.league).filter((lg) => ESPN[lg]));
     if (!leagues.size || selDay < localToday()) return;
     try {
-      const r = await fetch(`${SB_URL}/functions/v1/live-lines?leagues=${[...leagues].join(",")}`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+      const r = await Auth.fetch(`${SB_URL}/functions/v1/live-lines?leagues=${[...leagues].join(",")}`, { cache: "no-store" });
       const d = await r.json();
       if (r.ok && !d.error) st.lines = d.rows || [];
     } catch {}

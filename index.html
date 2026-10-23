@@ -240,6 +240,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   <p class="foot">P/L = Returned − Cash risked. Bonus bets risk $0 cash. Live from the Bet Log database. Refreshes every minute while open.</p>
 </div>
 
+<script src="auth.js"></script>
 <script>
 (() => {
   const SERVER = "Notion";
@@ -896,7 +897,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   const PROMO_COLS = "name,book,type,league,amount,boost_pct,expires_at,terms,terms_read,ev,ev_basis";
   async function fetchPromos() {
     try {
-      const r = await fetch(`${SB_URL}/rest/v1/promos?select=${PROMO_COLS}&status=eq.Available&order=expires_at&limit=1000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+      const r = await Auth.fetch(`${SB_URL}/rest/v1/promos?select=${PROMO_COLS}&status=eq.Available&order=expires_at&limit=1000`, { cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       promoState.items = (await r.json()).map(normPromo).filter(Boolean);
       promoState.loaded = true; promoState.err = null;
@@ -906,7 +907,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   // Graded closing lines; optional, so the page still loads if this view is unavailable.
   async function fetchClv() {
     try {
-      const r = await fetch(`${SB_URL}/rest/v1/bet_clv?select=id,line_move,ev,ev_close&limit=10000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+      const r = await Auth.fetch(`${SB_URL}/rest/v1/bet_clv?select=id,line_move,ev,ev_close&limit=10000`, { cache: "no-store" });
       if (!r.ok) return new Map();
       return new Map((await r.json()).filter((x) => x.line_move != null && x.ev_close != null && x.ev != null)
         .map((x) => [x.id, { line_move: Number(x.line_move), ev: Number(x.ev), ev_close: Number(x.ev_close) }]));
@@ -914,7 +915,7 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
   }
   async function fetchBets() {
     const clvP = fetchClv();
-    const r = await fetch(`${SB_URL}/rest/v1/bets?select=${COLS}&order=settle_date.desc&limit=10000`, { headers: { apikey: SB_KEY }, cache: "no-store" });
+    const r = await Auth.fetch(`${SB_URL}/rest/v1/bets?select=${COLS}&order=settle_date.desc&limit=10000`, { cache: "no-store" });
     if (!r.ok) throw { code: "upstream_error", message: "HTTP " + r.status };
     const clv = await clvP;
     return (await r.json()).map((b) => ({ clv: clv.get(b.id),
