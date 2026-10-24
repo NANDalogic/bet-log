@@ -4,7 +4,7 @@
 <style>
 /* Scroll anchoring off: render() keeps the reader's place itself (Safari has none), so Chrome mustn't correct twice. */
 html{overflow-anchor:none}
-/* Layout: phone-first single column. Header (status doubles as the error notice) + Today/Week and league toggles, headline odds, KPI grid, outcome histogram, cheer list, game cards, plan, settled list. */
+/* Layout: phone-first single column. Header (status doubles as the error notice) + Today/Week and league toggles, headline odds, KPI grid, outcome histogram, game cards, plan, settled list. */
 :root{
   --page:#f4f4f1; --surface:#fcfcfb; --ink:#0b0b0b; --ink-2:#52514e; --muted:#7d7b75;
   --grid:#e6e5df; --axis:#c3c2b7; --line:rgba(11,11,11,.10); --chip:#ecebe6;
@@ -84,17 +84,6 @@ h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em}
 
 .chart svg{display:block;width:100%;overflow:visible}
 .chart text{font-family:var(--sans);font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
-
-.cheer{display:flex;flex-direction:column}
-.ch{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:2px 10px;padding:9px 0;border-top:1px solid var(--line)}
-.ch:first-child{border-top:0}
-.ch .cl{font-weight:600;font-size:15px;min-width:0;overflow-wrap:anywhere}
-.ch .cp{text-align:right;font-weight:650}
-.ch .cs{font-size:12.5px;color:var(--muted);grid-column:1/-1}
-.ch .cs b{font-weight:600}
-.ch .cb{font-size:12.5px;color:var(--muted);grid-column:1/-1;overflow-wrap:anywhere}
-.ch .cbar{grid-column:1/-1;height:4px;border-radius:2px;background:var(--chip);overflow:hidden}
-.ch .cbar i{display:block;height:100%;background:var(--ink-2)}
 
 .game .gh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .game .gt{font-weight:650;font-size:15.5px}
@@ -522,20 +511,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   }
 
   // ---------- labels ----------
-  function gameAbbr(G, key) { const g = G?.g; return g ? { home: g.home, away: g.away } : { home: key.split("@")[1] || "home", away: (key.split(":")[1] || "away").split("@")[0] }; }
-  function outcomeLabel(o, yes, P) {
-    const sp = o.spec, G = P.games[sp.g], t = gameAbbr(G, sp.g || "");
-    const tag = ` (${t.away}@${t.home})`;
-    switch (sp.type) {
-      case "ml": return `${yes ? t.home : t.away} win`;
-      case "spr": return yes ? `${t.home} ${fmtLine(sp.homeLine)}` : `${t.away} ${fmtLine(-sp.homeLine)}`;
-      case "tot": return `${yes ? "Over" : "Under"} ${sp.line}${tag}`;
-      case "tt": return `${sp.side === "home" ? t.home : t.away} ${yes ? "over" : "under"} ${sp.line} pts`;
-      case "lead": return yes ? `${sp.side === "home" ? t.home : t.away} win or lead by ${sp.N}+` : `${sp.side === "home" ? t.home : t.away} never up ${sp.N}, and lose`;
-      case "prop": return `${sp.leg.player} ${yes ? "over" : "under"} ${sp.leg.line} ${STAT_LABEL[sp.leg.stat] || sp.leg.stat}`;
-      default: return (yes ? "" : "Not: ") + (sp.label || "other leg");
-    }
-  }
 
   // ---------- render ----------
   function kpi(label, value, vcls, sub) { return h("div", { class: "kpi" }, h("span", { class: "k" }, label), h("span", { class: "v num " + (vcls || "") }, value), h("span", { class: "s" }, sub)); }
@@ -791,7 +766,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   // "BUF ML −110, +$50/−$25 · 3-lg +595: PHI ML, o44.5, Hurts ATD, +$62/−$10 · +2 more worth +$40/−$25"
   // Biggest win first; about two lines' worth, then the rest summed (a parlay's $ isn't summed: it needs its other legs too).
   const odds = (o) => (o == null ? "" : o > 0 ? "+" + o : "−" + Math.abs(o));
-  const wl = (b) => `+$${Math.round(b.payout - b.cash).toLocaleString("en-US")}/−$${Math.round(b.cash).toLocaleString("en-US")}`;
   function legShort(l) {
     const team = l.side === "home" ? l.home : l.side === "away" ? l.away : "";
     const last = (l.player || "").split(" ").filter((w) => !/^(jr|sr|ii|iii|iv|v)\.?$/i.test(w)).slice(-1)[0] || "";
@@ -804,27 +778,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       default: return (l.desc || "other").slice(0, 24);
     }
   }
-  function cheerBets(list, P) {
-    if (!list || !list.length) return null;
-    // Parlay legs carry their own odds (leg `odds`, logged since 10/12/2026); the parlay's total odds show only when a leg lacks them.
-    const legOdds = (l) => legShort(l) + (num(l.odds) != null ? " " + odds(num(l.odds)) : "");
-    const items = list.map((b) => { const m = P.meta.get(b.id), legs = m.legs || [], o = odds(num(m.odds));
-      const allLegOdds = legs.every((l) => num(l.odds) != null);
-      return { b, parlay: legs.length > 1, text: legs.length > 1 ? `${legs.length}-lg${o && !allLegOdds ? " " + o : ""}: ${legs.map(legOdds).join(", ")}, ${wl(b)}` : `${legs.length ? legShort(legs[0]) : m.bet}${o ? " " + o : ""}, ${wl(b)}` }; })
-      .sort((x, y) => (y.b.payout - y.b.cash) - (x.b.payout - x.b.cash));
-    const shown = [];
-    let len = 0;
-    for (const it of items) { if (shown.length && (shown.length >= 4 || len + it.text.length > 130)) break; shown.push(it); len += it.text.length + 3; }
-    const rest = items.slice(shown.length), parts = shown.map((x) => x.text);
-    if (rest.length) {
-      const flat = rest.filter((x) => !x.parlay), np = rest.length - flat.length;
-      const win = flat.reduce((a, x) => a + x.b.payout - x.b.cash, 0), lose = flat.reduce((a, x) => a + x.b.cash, 0);
-      parts.push(`+${rest.length} more` + (np && flat.length ? ` (${np} parlay${np > 1 ? "s" : ""})` : np ? ` parlay${np > 1 ? "s" : ""}` : "")
-        + (flat.length ? ` worth +$${Math.round(win).toLocaleString("en-US")}/−$${Math.round(lose).toLocaleString("en-US")}` : ""));
-    }
-    return h("span", { class: "cb num" }, parts.join(" · "));
-  }
-
   function betRow(b, pb) {
     const cash = num(b.cash_risked) ?? 0;
     let pill;
@@ -841,8 +794,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 
   // ---------- game cards (since 10/19/2026, built from Josh's mock: Layout_Mock/game-card-mock.html) ----------
   // One card per game with money on it. Always visible: scoreboard (score by period, clock, ball, win %) and the win-probability
-  // chart. Under them one collapsed bar (counts, +win / −lose, chance in the black) opens to four subsections: Straight bets,
-  // Parlays (this game's leg boxed), Hedge triggers, Cheer for. Live and upcoming games first, Across games next, finished last.
+  // chart. Under them one collapsed bar (counts, +win / −lose, chance in the black) opens to three subsections: Straight bets,
+  // Parlays (this game's leg boxed), Hedge triggers. Live and upcoming games first, Across games next, finished last.
   // Open state is remembered per card in localStorage `liveOpen:<game id>`; opening a card re-opens every subsection.
   const OPEN_KEY = "liveOpen:";
   const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -1138,23 +1091,6 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       }
     }
 
-    // Cheer for, grouped by game (each game's winner is offered even with no moneyline bet on it).
-    const extra = [];
-    for (const [key] of Object.entries(P.games)) {
-      if (!res.sims[key] || !(res.sims[key].H || res.sims[key].hw)) continue;
-      const spec = { key: `${key}:ml`, type: "ml", g: key };
-      if (res.outcomes.has(spec.key)) continue;
-      const S = res.sims[key], v = new Int8Array(res.n);
-      for (let i = 0; i < res.n; i++) v[i] = S.H ? (S.H[i] > S.A[i] ? 1 : 0) : S.hw[i];
-      extra.push({ spec, v });
-    }
-    const cheerBy = new Map();
-    for (const r of M.cheer(res, extra)) { const k = r.o.spec.g; (cheerBy.get(k) || cheerBy.set(k, []).get(k)).push(r); }
-    const byKey = new Map();   // outcome key -> open bets with a leg on it
-    for (const b of P.bets) (b.legs || []).forEach(({ g, leg }, i) => {
-      const k = M.legOutcome(g, leg, b.id, i).key, list = byKey.get(k) || byKey.set(k, []).get(k);
-      if (!list.includes(b)) list.push(b);
-    });
     const hedgeBy = new Map();
     for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) { const sx = hedgeState(t, res); if (sx.g && !sx.none) (hedgeBy.get(sx.g.id) || hedgeBy.set(sx.g.id, []).get(sx.g.id)).push(sx); }
 
@@ -1167,23 +1103,15 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
       const straights = d.straights.slice().sort((a, b) => bySwing(item.get(a), item.get(b))), parlays = d.parlays.slice().sort((a, b) => bySwing(item.get(a), item.get(b)));
       const tS = totalsOf(straights, ctx), tP = totalsOf(parlays, ctx);
       const hedges = hedgeBy.get(key) || [], fired = hedges.some((x) => x.hit);
-      const cheer = (cheerBy.get(key) || []).slice(0, 8);
       if (g) st.cardIds.add(g.id);
 
       const straightTotal = h("div", { class: "g-stot" }, h("span", {}, "Straight bets total"),
         tS.done ? h("span", { class: "num" }, "Final P/L ", h("b", { class: cls(tS.win) }, money(tS.win)), ` · ${tS.won} won, ${tS.lost} lost`)
           : h("span", { class: "num" }, "If all win ", h("b", { class: "pos" }, money0(tS.win)), " · if all lose ", h("b", { class: "neg" }, money0(tS.lose))));
-      const maxS = Math.max(1, ...cheer.map((r) => r.swing));
       const subs = [
         straights.length ? subSec(key, "straights", "Straight bets", straights.length, "sorted by payout", [...straights.map((id) => straightRowG(id, key, ctx)), straightTotal]) : null,
         parlays.length ? subSec(key, "parlays", "Parlays", parlays.length, "boxed leg = this game", parlays.map((id) => parlayRowG(id, key, ctx))) : null,
         hedges.length ? subSec(key, "hedges", "Hedge triggers", hedges.length, "card turns red when one fires", hedges.map((x) => hedgeCard(x))) : null,
-        cheer.length ? subSec(key, "cheer", "Cheer for", cheer.length, "% = chance now · night P/L if yes / if not", cheer.map((r) => h("div", { class: "ch" },
-          h("span", { class: "cl" }, outcomeLabel(r.o, r.yes, P)),
-          h("span", { class: "cp num" }, pctS(r.p)),
-          h("span", { class: "cbar", "aria-hidden": "true" }, h("i", { style: `width:${(r.swing / maxS * 100).toFixed(0)}%` })),
-          h("span", { class: "cs num" }, "If yes ", h("b", { class: cls(r.ifYes) }, money0(r.ifYes)), " · if not ", h("b", { class: cls(r.ifNo) }, money0(r.ifNo)), r.o.est ? " · est." : ""),
-          cheerBets(byKey.get(r.o.spec.key), P)))) : null,
       ];
       const bar = [sumGroup("Straight bets", tS), sumGroup("Parlays", tP), hedges.length ? h("span", { class: "fire-flag" }, "HEDGE NOW") : null, h("span", { class: "fhint" }, "Tap to see every bet")];
       const head = g ? [gameHeader(g, key, res), winChart(g)]
