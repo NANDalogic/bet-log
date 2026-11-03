@@ -24,8 +24,109 @@
     return { u, n };
   }
 
-  // Fit margin ~ N(mu_m, sd_m) to ML + spread, total ~ N(mu_t, sd_t) to the over price (same as betsim fit_football).
-  function fitFootball(L, sdT) {
+  // ---------- NFL score model v6: port of betsim.py margin_atoms / fit_football / simulate_football ----------
+  // Numbers from bet-sim's v6_params.json (version 3, fitted 10/21/2026 on 2016–2025 NFL games, Analysis/sgp/README.md).
+  // Final home margin = a normal cut into whole-point bins, each bin reweighted by w[|margin|] (key numbers: 3 is 2.6×,
+  // 7 is 1.7× a plain normal), so pushes at −3/−7 come out right. The tie bin becomes an overtime result (sign by coin,
+  // size from OT). Total = normal, rho-linked to the margin's underlying normal. CFB keeps the plain normal below.
+  const V6 = {
+    rho: 0.024, sd_m: 12.7, sd_t: 13.22,
+    w: [0.1296, 0.8419, 0.8539, 2.5854, 0.8717, 0.8578, 1.29, 1.6634, 0.9244, 0.4256, 1.0729, 0.5387, 0.5337, 0.5916,
+      1.4286, 0.5894, 0.8273, 1.2407, 0.9474, 0.5882, 1.0256, 1.1177],   // |margin| 0..21, 1 beyond
+    ot: [[3, 0.5714], [6, 0.3377], [7, 0.0065], [1, 0.0211], [2, 0.0211], [4, 0.0211], [5, 0.0211]],   // "other" 0.0844 over 1, 2, 4, 5
+  };
+  const KM = 100;
+  // Final margins as atoms {m, src, cdf}: bin k of N(mu, sd) gets mass q(k)·w(|k|)^wexp; the tie bin's mass goes to the
+  // OT atoms (src 0). wexp = 1 pregame; live it is the share of the game left, so the reweighting fades out as the
+  // final margin narrows to the current one (late in a game, key numbers are about the next score, not the bin).
+  function v6Atoms(mu, sd, wexp) {
+    const m = [], src = [], p = [];
+    let prev = ncdf((-KM - 0.5 - mu) / sd), tie = 0;
+    for (let k = -KM; k <= KM; k++) {
+      const c = ncdf((k + 0.5 - mu) / sd), a = Math.abs(k), w = a < V6.w.length ? V6.w[a] : 1;
+      const q = (c - prev) * (wexp === 1 ? w : Math.pow(w, wexp)); prev = c;
+      if (k === 0) { tie = q; continue; }
+      m.push(k); src.push(k); p.push(q);
+    }
+    for (const [j, pj] of V6.ot) { m.push(j, -j); src.push(0, 0); p.push(tie * pj / 2, tie * pj / 2); }
+    let s = 0; const cdf = new Float64Array(p.length);
+    for (let i = 0; i < p.length; i++) { s += p[i]; cdf[i] = s; }
+    for (let i = 0; i < p.length; i++) { p[i] /= s; cdf[i] /= s; }
+    return { m, src, p, cdf };
+  }
+  // P(home wins), P(home covers s0) push-excluded, P(push at s0).
+  function v6Probs(mu, sd, s0, wexp = 1) {
+    const A = v6Atoms(mu, sd, wexp);
+    let ph = 0, win = 0, lose = 0, push = 0;
+    for (let i = 0; i < A.m.length; i++) {
+      const x = A.m[i], q = A.p[i];
+      if (x > 0) ph += q;
+      if (s0 != null) { if (x > s0) win += q; else if (x < s0) lose += q; else push += q; }
+    }
+    return [ph, win + lose > 0 ? win / (win + lose) : 0.5, push];
+  }
+  // Bisect the margin centre so v6Probs(...)[idx] = target (both are increasing in mu).
+  function v6Mu(sd, target, idx, s0, wexp = 1, lo = -60, hi = 60) {
+    for (let i = 0; i < 45; i++) { const mid = (lo + hi) / 2; if (v6Probs(mid, sd, s0, wexp)[idx] < target) lo = mid; else hi = mid; }
+    return (lo + hi) / 2;
+  }
+  const v6Fits = new Map();
+  // betsim fit_football: sd_m from spread vs ML (plain-normal guess), mu_m so P(home wins) = ML; if the push-excluded
+  // P(cover) is then > 0.003 off spread_p, sd_m is refitted by bisection too. Memoized (the page refits every refresh).
+  function fitNFL(L) {
+    const ml = L.home_ml_p != null ? clamp(L.home_ml_p, 0.005, 0.995) : null;
+    const s0 = L.spread != null ? -L.spread : null, sp = L.spread != null ? (L.spread_p ?? 0.5) : null;
+    const ck = [ml, s0, sp, L.total, L.over_p].join("|");
+    if (v6Fits.has(ck)) return v6Fits.get(ck);
+    let sd_m = V6.sd_m, mu_m = 0;
+    if (ml != null) {
+      if (s0 != null) { const z0 = ninv(1 - ml), z1 = ninv(1 - sp); if (Math.abs(s0) >= 1 && (z1 - z0) * s0 > 0.05) sd_m = s0 / (z1 - z0); }
+      sd_m = clamp(sd_m, 5, 30);
+      mu_m = v6Mu(sd_m, ml, 0, s0);
+      if (s0 != null && s0 !== 0 && Math.abs(v6Probs(mu_m, sd_m, s0)[1] - sp) > 0.003) {
+        const fz = (sd) => v6Probs(v6Mu(sd, ml, 0, s0), sd, s0)[1] - sp;
+        let lo = 5, hi = 30, flo = fz(lo);
+        if (flo * fz(hi) < 0) {
+          for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2, fm = fz(mid); if ((fm < 0) === (flo < 0)) { lo = mid; flo = fm; } else hi = mid; }
+          sd_m = (lo + hi) / 2; mu_m = v6Mu(sd_m, ml, 0, s0);
+        }   // else: betsim's warning case, ML matched and the spread left off
+      }
+    } else if (s0 != null) mu_m = v6Mu(sd_m, sp, 1, s0);
+    const out = { v6: true, mu_m, sd_m, sd_t: V6.sd_t, rho: V6.rho,
+      mu_t: L.total != null ? L.total - V6.sd_t * ninv(1 - (L.over_p ?? 0.5)) : 44 };
+    v6Fits.set(ck, out);
+    return out;
+  }
+  // Final scores for one NFL game. Live: the rest of the game has centre mu_m·f and spread sd_m·√f around the current
+  // margin (re-centred so P(home wins) = ESPN's win %), weights faded by f; the rest-of-game total is mu_t·f, sd_t·√f.
+  function simNFL(fit, live, n, R) {
+    const H = new Float32Array(n), A = new Float32Array(n);
+    if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0 }; }
+    const pre = live.state !== "in";
+    const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
+    const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
+    const sdR = fit.sd_m * Math.sqrt(f), wexp = pre ? 1 : f;
+    let mu = curM + fit.mu_m * f;
+    if (!pre && live.wp != null) mu = v6Mu(sdR, clamp(live.wp, 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60);
+    const At = v6Atoms(mu, sdR, wexp), cdf = At.cdf, last = cdf.length - 1;
+    const muTR = fit.mu_t * f, sdTR = fit.sd_t * Math.sqrt(f), rho = fit.rho, rr = Math.sqrt(1 - rho * rho);
+    for (let i = 0; i < n; i++) {
+      const u = R.u();
+      let lo = 0, hi = last;
+      while (lo < hi) { const md = (lo + hi) >> 1; if (cdf[md] > u) hi = md; else lo = md + 1; }
+      const mr = At.m[lo] - curM;                                   // rest-of-game home margin
+      const z1 = (At.src[lo] + R.u() - 0.5 - mu) / sdR, z2 = rho * z1 + rr * R.n();
+      let t = Math.max(Math.round(muTR + sdTR * z2), Math.abs(mr));
+      if ((t - mr) % 2) t = Math.max(t + (R.u() < 0.5 ? -1 : 1), Math.abs(mr));   // whole points for both teams
+      H[i] = curH + (t + mr) / 2; A[i] = curA + (t - mr) / 2;
+    }
+    return { H, A, f };
+  }
+
+  // Fit margin ~ N(mu_m, sd_m) to ML + spread, total ~ N(mu_t, sd_t) to the over price (betsim v5 fit_football; CFB).
+  // NFL (lg "NFL") uses the v6 key-number model above.
+  function fitFootball(L, sdT, lg) {
+    if (lg === "NFL") return fitNFL(L);
     const out = { sd_t: sdT };
     const s0 = L.spread != null ? -L.spread : null;
     const z1 = L.spread != null ? ninv(1 - (L.spread_p ?? 0.5)) : null;
@@ -42,6 +143,7 @@
 
   // Final scores for one football game. live: {state, home, away, secLeft, wp}. Pregame f = 1.
   function simFootball(fit, live, n, R) {
+    if (fit.v6) return simNFL(fit, live, n, R);
     const H = new Float32Array(n), A = new Float32Array(n);
     if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0 }; }
     const pre = live.state !== "in";
@@ -742,7 +844,7 @@
               if (g) {
                 const { L, src } = gameLine(g, legsByGame.get(g.id) || []);
                 lineSrc[key] = src;
-                if (FOOTBALL.has(g.league)) { G.kind = "football"; G.fit = M.fitFootball(L, g.league === "CFB" ? 16 : 13); }
+                if (FOOTBALL.has(g.league)) { G.kind = "football"; G.fit = M.fitFootball(L, g.league === "CFB" ? 16 : 13, g.league); }
                 else if (g.league === "NHL") { G.kind = "hockey"; G.fit = M.fitHockey(L); }
                 else if (HOOPS.has(g.league)) { G.kind = "basketball"; G.fit = M.fitBasketball(L, g.league); }
                 else if (g.league === "MLB") { G.kind = "baseball"; G.fit = M.fitBaseball(L); }
