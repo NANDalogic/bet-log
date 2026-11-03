@@ -904,21 +904,33 @@ h1{font-size:24px;margin:2px 0 0;text-wrap:balance;letter-spacing:-.01em}
       renderFilters(); renderPromos();
     } catch { promoError(); }
   }
+  // Every row of a query. Supabase's API returns at most 1,000 rows per request (project setting max_rows), whatever
+  // `limit` asks for, so read page by page until a short page. `path` must end in an order that includes a unique
+  // column (id), or rows could repeat or go missing between pages. Audit 10/20 (High), fixed 11/3/2026.
+  const PAGE = 1000;
+  async function fetchAll(path) {
+    const out = [];
+    for (let off = 0; ; off += PAGE) {
+      const r = await Auth.fetch(`${SB_URL}/rest/v1/${path}&limit=${PAGE}&offset=${off}`, { cache: "no-store" });
+      if (!r.ok) throw { code: "upstream_error", message: "HTTP " + r.status };
+      const page = await r.json();
+      out.push(...page);
+      if (page.length < PAGE) return out;
+    }
+  }
   // Graded closing lines; optional, so the page still loads if this view is unavailable.
   async function fetchClv() {
     try {
-      const r = await Auth.fetch(`${SB_URL}/rest/v1/bet_clv?select=id,line_move,ev,ev_close&limit=10000`, { cache: "no-store" });
-      if (!r.ok) return new Map();
-      return new Map((await r.json()).filter((x) => x.line_move != null && x.ev_close != null && x.ev != null)
+      return new Map((await fetchAll("bet_clv?select=id,line_move,ev,ev_close&order=id"))
+        .filter((x) => x.line_move != null && x.ev_close != null && x.ev != null)
         .map((x) => [x.id, { line_move: Number(x.line_move), ev: Number(x.ev), ev_close: Number(x.ev_close) }]));
     } catch { return new Map(); }
   }
   async function fetchBets() {
     const clvP = fetchClv();
-    const r = await Auth.fetch(`${SB_URL}/rest/v1/bets?select=${COLS}&order=settle_date.desc&limit=10000`, { cache: "no-store" });
-    if (!r.ok) throw { code: "upstream_error", message: "HTTP " + r.status };
+    const rows = await fetchAll(`bets?select=${COLS}&order=settle_date.desc,id`);
     const clv = await clvP;
-    return (await r.json()).map((b) => ({ clv: clv.get(b.id),
+    return rows.map((b) => ({ clv: clv.get(b.id),
       url: b.id, Bet: b.bet, Game: b.game, "date:Date:start": b.settle_date, League: b.league, Promo: b.promo,
       Verdict: b.verdict, Book: b.book, "Bet type": b.bet_type, Odds: b.odds, Stake: b.stake,
       "Cash risked": b.cash_risked, Returned: b.returned, Result: b.result, "Boost %": b.boost_pct,
