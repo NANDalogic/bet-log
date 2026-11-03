@@ -54,21 +54,40 @@
     for (let i = 0; i < p.length; i++) { p[i] /= s; cdf[i] /= s; }
     return { m, src, p, cdf };
   }
-  // P(home wins), P(home covers s0) push-excluded, P(push at s0).
+  // P(home wins), P(home covers s0) push-excluded, P(push at s0). Same atoms as v6Atoms, summed in one pass without
+  // building arrays (the fits call this ~100× per game; 11/3/2026, for live-snapshot's 2 s CPU limit).
   function v6Probs(mu, sd, s0, wexp = 1) {
-    const A = v6Atoms(mu, sd, wexp);
-    let ph = 0, win = 0, lose = 0, push = 0;
-    for (let i = 0; i < A.m.length; i++) {
-      const x = A.m[i], q = A.p[i];
-      if (x > 0) ph += q;
-      if (s0 != null) { if (x > s0) win += q; else if (x < s0) lose += q; else push += q; }
+    let prev = ncdf((-KM - 0.5 - mu) / sd), tie = 0, tot = 0, ph = 0, win = 0, lose = 0, push = 0;
+    const add = (x, q) => { tot += q; if (x > 0) ph += q; if (s0 != null) { if (x > s0) win += q; else if (x < s0) lose += q; else push += q; } };
+    for (let k = -KM; k <= KM; k++) {
+      const c = ncdf((k + 0.5 - mu) / sd), a = Math.abs(k), w = a < V6.w.length ? V6.w[a] : 1;
+      const q = (c - prev) * (wexp === 1 ? w : Math.pow(w, wexp)); prev = c;
+      if (k === 0) tie = q; else add(k, q);
     }
-    return [ph, win + lose > 0 ? win / (win + lose) : 0.5, push];
+    for (const [j, pj] of V6.ot) { add(j, tie * pj / 2); add(-j, tie * pj / 2); }
+    return [ph / tot, win + lose > 0 ? win / (win + lose) : 0.5, push / tot];
   }
-  // Bisect the margin centre so v6Probs(...)[idx] = target (both are increasing in mu).
+  // Root of f on [lo, hi] by the Illinois method (bracketed false position): ~10 evaluations where bisection to the
+  // same precision takes 45. f(lo) and f(hi) must have opposite signs.
+  function illinois(f, lo, hi, flo, fhi, tolX) {
+    let x = lo, side = 0;
+    for (let i = 0; i < 100; i++) {
+      const xp = x;
+      x = (lo * fhi - hi * flo) / (fhi - flo);
+      const fx = f(x);
+      if (fx === 0 || hi - lo < tolX || (i > 0 && Math.abs(x - xp) < tolX / 10)) break;
+      if ((fx < 0) === (flo < 0)) { lo = x; flo = fx; if (side === -1) fhi /= 2; side = -1; }
+      else { hi = x; fhi = fx; if (side === 1) flo /= 2; side = 1; }
+    }
+    return x;
+  }
+  // Margin centre so v6Probs(...)[idx] = target (both are increasing in mu). Solved to 1e-9 points.
   function v6Mu(sd, target, idx, s0, wexp = 1, lo = -60, hi = 60) {
-    for (let i = 0; i < 45; i++) { const mid = (lo + hi) / 2; if (v6Probs(mid, sd, s0, wexp)[idx] < target) lo = mid; else hi = mid; }
-    return (lo + hi) / 2;
+    const f = (mu) => v6Probs(mu, sd, s0, wexp)[idx] - target;
+    const flo = f(lo), fhi = f(hi);
+    if (flo >= 0) return lo;
+    if (fhi <= 0) return hi;
+    return illinois(f, lo, hi, flo, fhi, 1e-9);
   }
   const v6Fits = new Map();
   // betsim fit_football: sd_m from spread vs ML (plain-normal guess), mu_m so P(home wins) = ML; if the push-excluded
@@ -85,10 +104,9 @@
       mu_m = v6Mu(sd_m, ml, 0, s0);
       if (s0 != null && s0 !== 0 && Math.abs(v6Probs(mu_m, sd_m, s0)[1] - sp) > 0.003) {
         const fz = (sd) => v6Probs(v6Mu(sd, ml, 0, s0), sd, s0)[1] - sp;
-        let lo = 5, hi = 30, flo = fz(lo);
-        if (flo * fz(hi) < 0) {
-          for (let i = 0; i < 30; i++) { const mid = (lo + hi) / 2, fm = fz(mid); if ((fm < 0) === (flo < 0)) { lo = mid; flo = fm; } else hi = mid; }
-          sd_m = (lo + hi) / 2; mu_m = v6Mu(sd_m, ml, 0, s0);
+        const flo = fz(5), fhi = fz(30);
+        if (flo * fhi < 0) {
+          sd_m = illinois(fz, 5, 30, flo, fhi, 1e-7); mu_m = v6Mu(sd_m, ml, 0, s0);
         }   // else: betsim's warning case, ML matched and the spread left off
       }
     } else if (s0 != null) mu_m = v6Mu(sd_m, sp, 1, s0);
@@ -99,6 +117,10 @@
   }
   // Final scores for one NFL game. Live: the rest of the game has centre mu_m·f and spread sd_m·√f around the current
   // margin (re-centred so P(home wins) = ESPN's win %), weights faded by f; the rest-of-game total is mu_t·f, sd_t·√f.
+  // The centre + atoms depend only on the fit and the game state, so they're memoized per fit (11/3/2026): live-snapshot
+  // runs the model ~10× per call (day/week × each league) and redoing the 45-step bisection every time pushed it past
+  // Supabase's 2 s CPU limit. Same numbers, no randomness involved.
+  const v6Sims = new WeakMap(), GK = 1024;
   function simNFL(fit, live, n, R) {
     const H = new Float32Array(n), A = new Float32Array(n);
     if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0 }; }
@@ -106,16 +128,30 @@
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
     const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
     const sdR = fit.sd_m * Math.sqrt(f), wexp = pre ? 1 : f;
-    let mu = curM + fit.mu_m * f;
-    if (!pre && live.wp != null) mu = v6Mu(sdR, clamp(live.wp, 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60);
-    const At = v6Atoms(mu, sdR, wexp), cdf = At.cdf, last = cdf.length - 1;
+    let memo = v6Sims.get(fit);
+    if (!memo) { memo = new Map(); v6Sims.set(fit, memo); }
+    const mk = pre ? "pre" : [curM, f, live.wp].join("|");
+    let hit = memo.get(mk);
+    if (!hit) {
+      let mu0 = curM + fit.mu_m * f;
+      if (!pre && live.wp != null) mu0 = v6Mu(sdR, clamp(live.wp, 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60);
+      if (memo.size > 50) memo.clear();
+      const At0 = v6Atoms(mu0, sdR, wexp), c0 = At0.cdf, L0 = c0.length - 1;
+      // Guide table: gd[j] = first atom whose cdf > j/GK, so a draw u starts its scan at gd[floor(u·GK)]
+      // (same atom as a binary search for the first cdf > u, ~1 step instead of ~8).
+      const gd = new Int32Array(GK); let ii = 0;
+      for (let j = 0; j < GK; j++) { while (ii < L0 && c0[ii] <= j / GK) ii++; gd[j] = ii; }
+      hit = { mu: mu0, At: At0, gd, m: Float64Array.from(At0.m), src: Float64Array.from(At0.src) };
+      memo.set(mk, hit);
+    }
+    const mu = hit.mu, cdf = hit.At.cdf, last = cdf.length - 1, gd = hit.gd, Am = hit.m, As = hit.src;
     const muTR = fit.mu_t * f, sdTR = fit.sd_t * Math.sqrt(f), rho = fit.rho, rr = Math.sqrt(1 - rho * rho);
     for (let i = 0; i < n; i++) {
       const u = R.u();
-      let lo = 0, hi = last;
-      while (lo < hi) { const md = (lo + hi) >> 1; if (cdf[md] > u) hi = md; else lo = md + 1; }
-      const mr = At.m[lo] - curM;                                   // rest-of-game home margin
-      const z1 = (At.src[lo] + R.u() - 0.5 - mu) / sdR, z2 = rho * z1 + rr * R.n();
+      let lo = gd[(u * GK) | 0];
+      while (lo < last && cdf[lo] <= u) lo++;
+      const mr = Am[lo] - curM;                                     // rest-of-game home margin
+      const z1 = (As[lo] + R.u() - 0.5 - mu) / sdR, z2 = rho * z1 + rr * R.n();
       let t = Math.max(Math.round(muTR + sdTR * z2), Math.abs(mr));
       if ((t - mr) % 2) t = Math.max(t + (R.u() < 0.5 ? -1 : 1), Math.abs(mr));   // whole points for both teams
       H[i] = curH + (t + mr) / 2; A[i] = curA + (t - mr) / 2;
