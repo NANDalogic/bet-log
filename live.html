@@ -1003,42 +1003,123 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     return { n: ids.length, win, lose, done: !pend.length, won, lost, pBlack };
   }
 
-  // --- hedge triggers (same math as before; now shown on the trigger's own game card) ---
-  // Win chance: ESPN's, else this page's model (NHL has no ESPN win %), the same number the game card shows.
+  // --- hedge triggers (shown on the trigger's own game card) ---
+  // Market (since 11/3/2026): a trigger rides on who wins (ml), a spread, or a total. Plans saved since 11/3 store `kind`/`line`;
+  // older ones are read from the bets on that game: one spread or total line and nothing else → that market, else ml.
+  // Why: on 11/1 a TB -10.5 bonus bet fired on TB's 94% win chance (TB -10.5 was ~60% to cover) and suggested an ATL ML
+  // hedge, which loses too if TB wins by 1-10. Spread/total chances come from this page's live sims at the line (pushes
+  // excluded), and the hedge is the other side of that same line. Win chance for ml: ESPN's, else this page's model.
   // A trigger's P/L branches are saved with the plan, which assumes its picks get placed. Once none of the plan's picks on
   // this game are still open, the branches come from the bets actually placed: the average night P/L in the sims where our
   // side wins vs loses. Under $2 to hedge at the trigger = nothing riding on the winner, so the trigger is dropped (none).
-  function riding(g, res, home) {
+  function trigMarket(t, g) {
+    const legs = [];
+    let parlay = false;
+    if (g) for (const b of [...st.bets, ...unplacedAsBets(currentPlan())]) {
+      if (b.result !== "Pending") continue;
+      const on = (b.legs || []).filter((l) => findGame(l)?.id === g.id);
+      if (!on.length) continue;
+      if (on.length < b.legs.length) parlay = true;
+      legs.push(...on);
+    }
+    const key = (l) => l.kind === "ml" ? "ml" : l.kind + "|" + l.side + "|" + num(l.line);
+    const keys = new Set(legs.map(key));
+    let mk;
+    if (t.kind === "spread" || t.kind === "total") mk = { kind: t.kind, side: t.our_side, line: num(t.line) };
+    else if (!t.kind && keys.size === 1 && (legs[0].kind === "spread" || legs[0].kind === "total") && num(legs[0].line) != null)
+      mk = { kind: legs[0].kind, side: legs[0].side, line: num(legs[0].line), guessed: true };
+    else mk = { kind: "ml", side: t.our_side };
+    if (mk.kind !== "ml" && (mk.line == null || !["home", "away", "over", "under"].includes(mk.side))) mk = { kind: "ml", side: t.our_side };
+    // Exact lock: every open bet on this game is a single on this one market (else the lock is an average).
+    mk.exact = !parlay && keys.size === 1 && [...keys][0] === key(mk.kind === "ml" ? { kind: "ml" } : mk);
+    const H = t.home, A = t.away;
+    if (mk.kind === "spread") {
+      const us = mk.side === "home" ? H : A, them = mk.side === "home" ? A : H;
+      Object.assign(mk, { ours: `${us} ${fmtLine(mk.line)}`, theirs: `${them} ${fmtLine(-mk.line)}`, verb: "covers" });
+    } else if (mk.kind === "total") {
+      const o = mk.side === "over";
+      Object.assign(mk, { ours: `${o ? "Over" : "Under"} ${mk.line}`, theirs: `${o ? "Under" : "Over"} ${mk.line}`, verb: "hits" });
+    } else {
+      const home = mk.side === "home";
+      Object.assign(mk, { ours: home ? H : A, theirs: home ? A : H, verb: "wins" });
+    }
+    return mk;
+  }
+  // 1 when our side of the market wins in sim i, -1 when it loses, 0 for a push (or a tie on ml).
+  function mkOutcome(mk, S, i) {
+    let v;
+    if (mk.kind === "spread") v = (mk.side === "home" ? S.H[i] - S.A[i] : S.A[i] - S.H[i]) + mk.line;
+    else if (mk.kind === "total") v = mk.side === "over" ? S.H[i] + S.A[i] - mk.line : mk.line - S.H[i] - S.A[i];
+    else if (S.H) v = (mk.side === "home" ? 1 : -1) * (S.H[i] - S.A[i]);
+    else v = (S.hw[i] === 1) === (mk.side === "home") ? 1 : -1;
+    return v > 0 ? 1 : v < 0 ? -1 : 0;
+  }
+  function riding(g, res, mk) {
     const S = res && res.sims[g.id];
-    if (!S || !(S.H || S.hw)) return null;
+    if (!S || !(S.H || S.hw) || (mk.kind !== "ml" && !S.H)) return null;
     let w = 0, l = 0, sw = 0, sl = 0;
     for (let i = 0; i < res.n; i++) {
-      if (S.H && S.H[i] === S.A[i]) continue;
-      if ((S.H ? S.H[i] > S.A[i] : S.hw[i] === 1) === home) { w++; sw += res.pl[i]; } else { l++; sl += res.pl[i]; }
+      const o = mkOutcome(mk, S, i);
+      if (o > 0) { w++; sw += res.pl[i]; } else if (o < 0) { l++; sl += res.pl[i]; }
     }
     return w && l ? { good: sw / w, bad: sl / l } : null;
   }
+  function marketP(g, res, mk) {
+    const S = res && res.sims[g.id];
+    if (!S || !S.H) return null;
+    let w = 0, l = 0;
+    for (let i = 0; i < res.n; i++) { const o = mkOutcome(mk, S, i); if (o > 0) w++; else if (o < 0) l++; }
+    return w + l ? { p: w / (w + l), src: "model" } : null;
+  }
   function hedgeState(t, res) {
-    const g = findGame(t), home = t.our_side === "home";
-    const ours = home ? t.home : t.away, theirs = home ? t.away : t.home;
-    const hw = g && g.state === "in" ? (g.wp != null ? { p: g.wp, src: "ESPN" } : res ? homeWinP(g, res, g.id) : null) : null;
-    const wp = hw ? (home ? hw.p : 1 - hw.p) : null, src = hw ? hw.src : null;
-    const at = num(t.live_p) ?? 0.85, hit = wp != null && wp >= at && wp < 0.995;
+    const g = findGame(t);
+    let mk = trigMarket(t, g);
+    let hw = null;
+    if (g && g.state === "in") {
+      if (mk.kind === "ml") {
+        const x = g.wp != null ? { p: g.wp, src: "ESPN" } : res ? homeWinP(g, res, g.id) : null;
+        hw = x ? { p: mk.side === "home" ? x.p : 1 - x.p, src: x.src } : null;
+      } else {
+        hw = marketP(g, res, mk);
+        if (!hw) { mk = trigMarket({ ...t, kind: "ml" }, g); const x = g.wp != null ? { p: g.wp, src: "ESPN" } : null; hw = x ? { p: mk.side === "home" ? x.p : 1 - x.p, src: x.src } : null; }
+      }
+    }
+    const home = mk.side === "home", ours = mk.ours, theirs = mk.theirs;
+    const wp = hw ? hw.p : null, src = hw ? hw.src : null;
+    const at = num(t.live_p) ?? 0.85;
+    // Price floor the plan set for the hedge: `min_odds` (plans since 11/3), else "+500 or better" in the plan's desc.
+    const floor = num(t.min_odds) ?? num(((t.desc || "").match(/at ([+-]\d{3,4}) or better/) || [])[1]);
     const fromPlan = !!g && unplacedAsBets(currentPlan()).some((b) => b.legs.some((l) => findGame(l)?.id === g.id));
-    const br = fromPlan ? { good: num(t.pl_if_ours_wins), bad: num(t.pl_if_ours_loses) } : g ? riding(g, res, home) : null;
+    const br = fromPlan ? { good: num(t.pl_if_ours_wins), bad: num(t.pl_if_ours_loses) } : g ? riding(g, res, mk) : null;
     const none = !fromPlan && (!br || (br.good - br.bad) * (1 - at) < 2);
-    return { t, g, ours, theirs, wp, src, at, hit: hit && !none, home, fromPlan, none, H: br ? hedgeAt(br, hit ? wp : at) : null };
+    const q = wp != null && wp >= at ? wp : at;
+    const H = br ? hedgeAt(br, q, floor) : null;
+    // Fires when our side's chance is at the trigger AND a fair price on the other side is at least the plan's floor
+    // (a book can't beat fair; the card still says to check the real price before betting).
+    const hit = wp != null && wp >= at && wp < 0.995 && !none && (!H || H.fairOk);
+    return { t, g, mk, ours, theirs, wp, src, at, hit, home, fromPlan, none, floor, H };
+  }
+  // Card text, shared by the game card and the Plan card.
+  function hedgeText(sx) {
+    const { g, mk, ours, theirs, wp, src, at, hit, fromPlan, H, floor } = sx;
+    const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
+    const price = floor != null ? `at ${H.odds} or better (fair ${H.fair})` : `at ${H.odds} (fair; books pay less)`;
+    const lock = mk.exact ? `locks ${money0(H.locked)}` : `about ${money0(H.locked)} either way, on average`;
+    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} ${price} → ${lock}`
+      : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} ${price} → ${lock}`;
+    const why = (fromPlan ? ` · assumes the plan's picks on this game get placed` : ` · from your placed bets` + (mk.exact ? "" : ", on average"))
+      + (mk.guessed ? ` · line read from the bet` : "") + (H.evCost > 0.5 ? ` · costs ~${money(H.evCost, false)} EV` : "");
+    const body = `If ${ours} ${mk.verb}: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · if ${theirs} ${mk.verb}: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}${why}`;
+    const waiting = wp != null && wp >= at && !hit && H && !H.fairOk ? ` · waiting: fair price on ${theirs} is ${H.fair}, short of the plan's ${fmtLine(floor)}` : "";
+    return { title, body: body + waiting };
   }
   function hedgeCard(sx, league) {
-    const { g, ours, theirs, wp, src, at, hit, fromPlan, H } = sx;
-    const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
-    const why = fromPlan ? ` · assumes the plan's picks on this game get placed` : ` · from your placed bets, on average`;
-    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`
-      : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`;
+    const { ours, wp, at, hit } = sx;
+    const { title, body } = hedgeText(sx);
     const pct = wp == null ? 0 : Math.min(wp, 1) * 100;
     return h("div", { class: "g-trg" + (hit ? " fired" : "") },
       h("div", { class: "top" }, h("div", { class: "t num" }, title), h("span", { class: "st" }, hit ? "HEDGE NOW" : "Armed")),
-      h("div", { class: "body num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · if ${theirs} wins: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}${why}`),
+      h("div", { class: "body num" }, body),
       wp == null ? null : h("div", { class: "g-sl" }, h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), h("b", { style: `left:${at * 100}%;right:auto` })),
         h("div", { class: "txt num" }, h("span", {}, `${ours} now `, h("b", {}, pctS(wp))), h("span", {}, "trigger " + pctS(at)))));
   }
@@ -1144,11 +1225,16 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
   // P(final P/L above a line). Week plans start from banked − withdrawn, so their "black" line is the withdrawal.
   function pAbove(res, line) { let k = 0; for (let i = 0; i < res.n; i++) if (res.pl[i] > line + 0.005) k++; return k / res.n; }
 
-  // Live hedge at win chance q for our side: bet the other side at its fair price so both outcomes pay the same.
-  function hedgeAt({ good, bad }, q) {
-    const d = 1 / (1 - q);
-    const stake = (good - bad) / d;
-    return { good, bad, stake, locked: good - stake, odds: "+" + Math.round((d - 1) * 100) };
+  // Live hedge at chance q for our side: bet the other side so both outcomes pay the same. Sized at the plan's price floor
+  // when it has one (the worst price it's worth taking, so the lock shown is the least you'd get), else at the fair price.
+  // fairOk = the fair price is at least the floor (no book beats fair). evCost = expected P/L given up by hedging.
+  function amer(d) { return d >= 2 ? "+" + Math.round((d - 1) * 100) : String(Math.round(-100 / (d - 1))); }
+  function dec(o) { return o > 0 ? 1 + o / 100 : 1 + 100 / -o; }
+  function hedgeAt({ good, bad }, q, floor) {
+    const fd = 1 / (1 - q), d = floor != null ? dec(floor) : fd;
+    const stake = (good - bad) / d, locked = good - stake;
+    return { good, bad, stake, locked, odds: amer(d), fair: amer(fd), fairOk: floor == null || fd >= d - 1e-9,
+      evCost: q * good + (1 - q) * bad - locked };
   }
 
   function renderPlan(res) {
@@ -1185,14 +1271,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
     // Live-hedge triggers. Ones whose game has a card are shown there (under its Hedge triggers); only the rest stay here.
     let anyHit = false;
     const trigs = (plan.triggers || []).map((t) => hedgeState(t, res)).filter((sx) => { anyHit = anyHit || sx.hit; return !sx.none && !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
-      const { g, ours, theirs, wp, src, at, hit, H } = sx;
-      const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
-      const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`
-        : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} at ${H.odds} → about ${money0(H.locked)} either way`;
-      return h("div", { class: "trig" + (hit ? " hit" : "") },
-        h("span", { class: "tt num" }, (hit ? "⚠ " : "") + title),
-        h("span", { class: "td num" }, `If ${ours} wins: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · `,
-          `if ${theirs} wins: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}`));
+      const { title, body } = hedgeText(sx);
+      return h("div", { class: "trig" + (sx.hit ? " hit" : "") }, h("span", { class: "tt num" }, (sx.hit ? "⚠ " : "") + title), h("span", { class: "td num" }, body));
     });
     if (anyHit) document.title = "⚠ Live Bets";
 
