@@ -27,8 +27,10 @@
   // ---------- NFL score model v6: port of betsim.py margin_atoms / fit_football / simulate_football ----------
   // Numbers from bet-sim's v6_params.json (version 3, fitted 10/21/2026 on 2016–2025 NFL games, Analysis/sgp/README.md).
   // Final home margin = a normal cut into whole-point bins, each bin reweighted by w[|margin|] (key numbers: 3 is 2.6×,
-  // 7 is 1.7× a plain normal), so pushes at −3/−7 come out right. The tie bin becomes an overtime result (sign by coin,
-  // size from OT). Total = normal, rho-linked to the margin's underlying normal. CFB keeps the plain normal below.
+  // 7 is 1.7× a plain normal), so pushes at −3/−7 come out right. The weights were fitted on FINAL margins (OT games at their
+  // final margin, bin 0 = real final ties), so pregame the tie bin stays a tie (~0.4%, ML pushes; betsim tie_bin "tie",
+  // audit 11/4/2026 #19: turning it into OT results too counted overtime twice). Total = normal, rho-linked to the margin's
+  // underlying normal. CFB keeps the plain normal below.
   const V6 = {
     rho: 0.024, sd_m: 12.7, sd_t: 13.22,
     w: [0.1296, 0.8419, 0.8539, 2.5854, 0.8717, 0.8578, 1.29, 1.6634, 0.9244, 0.4256, 1.0729, 0.5387, 0.5337, 0.5916,
@@ -36,36 +38,38 @@
     ot: [[3, 0.5714], [6, 0.3377], [7, 0.0065], [1, 0.0211], [2, 0.0211], [4, 0.0211], [5, 0.0211]],   // "other" 0.0844 over 1, 2, 4, 5
   };
   const KM = 100;
-  // Final margins as atoms {m, src, cdf}: bin k of N(mu, sd) gets mass q(k)·w(|k|)^wexp; the tie bin's mass goes to the
-  // OT atoms (src 0). wexp = 1 pregame; live it is the share of the game left, so the reweighting fades out as the
-  // final margin narrows to the current one (late in a game, key numbers are about the next score, not the bin).
+  // Final margins as atoms {m, src, cdf}: bin k of N(mu, sd) gets mass q(k)·w(|k|)^wexp. wexp = 1 pregame; live it is the
+  // share of the game left, so the reweighting fades out as the final margin narrows to the current one (late in a game,
+  // key numbers are about the next score, not the bin). The tie bin: a share wexp stays a tie (all of it pregame, as
+  // betsim), the rest goes to the OT atoms (src 0), so a game tied late in the 4th still mostly ends in overtime.
   function v6Atoms(mu, sd, wexp) {
     const m = [], src = [], p = [];
     let prev = ncdf((-KM - 0.5 - mu) / sd), tie = 0;
     for (let k = -KM; k <= KM; k++) {
       const c = ncdf((k + 0.5 - mu) / sd), a = Math.abs(k), w = a < V6.w.length ? V6.w[a] : 1;
       const q = (c - prev) * (wexp === 1 ? w : Math.pow(w, wexp)); prev = c;
-      if (k === 0) { tie = q; continue; }
+      if (k === 0) { m.push(0); src.push(0); p.push(q * wexp); tie = q * (1 - wexp); continue; }
       m.push(k); src.push(k); p.push(q);
     }
-    for (const [j, pj] of V6.ot) { m.push(j, -j); src.push(0, 0); p.push(tie * pj / 2, tie * pj / 2); }
+    if (tie > 0) for (const [j, pj] of V6.ot) { m.push(j, -j); src.push(0, 0); p.push(tie * pj / 2, tie * pj / 2); }
     let s = 0; const cdf = new Float64Array(p.length);
     for (let i = 0; i < p.length; i++) { s += p[i]; cdf[i] = s; }
     for (let i = 0; i < p.length; i++) { p[i] /= s; cdf[i] /= s; }
     return { m, src, p, cdf };
   }
-  // P(home wins), P(home covers s0) push-excluded, P(push at s0). Same atoms as v6Atoms, summed in one pass without
-  // building arrays (the fits call this ~100× per game; 11/3/2026, for live-snapshot's 2 s CPU limit).
+  // P(home wins) push-excluded (a tie pushes a 2-way ML, like the fair home_ml_p), P(home covers s0) push-excluded,
+  // P(push at s0). Same atoms as v6Atoms, summed in one pass without building arrays (the fits call this ~100× per game;
+  // 11/3/2026, for live-snapshot's 2 s CPU limit).
   function v6Probs(mu, sd, s0, wexp = 1) {
-    let prev = ncdf((-KM - 0.5 - mu) / sd), tie = 0, tot = 0, ph = 0, win = 0, lose = 0, push = 0;
-    const add = (x, q) => { tot += q; if (x > 0) ph += q; if (s0 != null) { if (x > s0) win += q; else if (x < s0) lose += q; else push += q; } };
+    let prev = ncdf((-KM - 0.5 - mu) / sd), tie = 0, tot = 0, ph = 0, pa = 0, win = 0, lose = 0, push = 0;
+    const add = (x, q) => { tot += q; if (x > 0) ph += q; else if (x < 0) pa += q; if (s0 != null) { if (x > s0) win += q; else if (x < s0) lose += q; else push += q; } };
     for (let k = -KM; k <= KM; k++) {
       const c = ncdf((k + 0.5 - mu) / sd), a = Math.abs(k), w = a < V6.w.length ? V6.w[a] : 1;
       const q = (c - prev) * (wexp === 1 ? w : Math.pow(w, wexp)); prev = c;
-      if (k === 0) tie = q; else add(k, q);
+      if (k === 0) { add(0, q * wexp); tie = q * (1 - wexp); } else add(k, q);
     }
-    for (const [j, pj] of V6.ot) { add(j, tie * pj / 2); add(-j, tie * pj / 2); }
-    return [ph / tot, win + lose > 0 ? win / (win + lose) : 0.5, push / tot];
+    if (tie > 0) for (const [j, pj] of V6.ot) { add(j, tie * pj / 2); add(-j, tie * pj / 2); }
+    return [ph + pa > 0 ? ph / (ph + pa) : 0.5, win + lose > 0 ? win / (win + lose) : 0.5, push / tot];
   }
   // Root of f on [lo, hi] by the Illinois method (bracketed false position): ~10 evaluations where bisection to the
   // same precision takes 45. f(lo) and f(hi) must have opposite signs.
