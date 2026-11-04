@@ -89,6 +89,35 @@
     if (fhi <= 0) return hi;
     return illinois(f, lo, hi, flo, fhi, 1e-9);
   }
+  // P(final total <= y), exactly, for the total simNFL draws pregame: T0 = round(N(mu_t + sd_t·rho·z1, sd_t·√(1−rho²)))
+  // with z1 at the atom's bin centre, T1 = max(T0, |m|), a wrong-parity T1 moves ±1 at random (never below |m|).
+  // Right-parity y: G(y) + P(T0 = y+1)/2; wrong parity: G(y−1) + P(T0 = y)/2; y < |m|: 0. Port of betsim total_cdf.
+  function v6TotalLE(At, mu_m, sd_m, rho, mu_t, sd_t, y) {
+    const s = sd_t * Math.sqrt(1 - rho * rho);
+    let sum = 0;
+    for (let i = 0; i < At.p.length; i++) {
+      const m = At.m[i];
+      if (y < Math.abs(m)) continue;
+      const c = mu_t + sd_t * rho * (At.src[i] - mu_m) / sd_m, G = (x) => ncdf((x + 0.5 - c) / s);
+      const wrong = ((y - m) % 2 + 2) % 2 === 1;
+      sum += At.p[i] * (wrong ? (G(y - 1) + G(y)) / 2 : (G(y) + G(y + 1)) / 2);
+    }
+    return sum;
+  }
+  // mu_t so the simulated total's P(over) = over_p (push-excluded on a whole line). A plain-normal mu_t over-states the
+  // over in lopsided games, where the loser can't score below 0 (audit 11/4/2026 #7; betsim fit_total).
+  function v6MuT(mu_m, sd_m, rho, sd_t, line, over_p) {
+    const At = v6Atoms(mu_m, sd_m, 1), whole = Number.isInteger(line), y = Math.floor(line);
+    const f = (mu) => {
+      const le = v6TotalLE(At, mu_m, sd_m, rho, mu, sd_t, y);
+      const under = whole ? v6TotalLE(At, mu_m, sd_m, rho, mu, sd_t, y - 1) : le, over = 1 - le;
+      return over / Math.max(over + under, 1e-12) - over_p;
+    };
+    const lo = line - 8 * sd_t, hi = line + 8 * sd_t, flo = f(lo), fhi = f(hi);
+    if (flo >= 0) return lo;
+    if (fhi <= 0) return hi;
+    return illinois(f, lo, hi, flo, fhi, 1e-7);
+  }
   const v6Fits = new Map();
   // betsim fit_football: sd_m from spread vs ML (plain-normal guess), mu_m so P(home wins) = ML; if the push-excluded
   // P(cover) is then > 0.003 off spread_p, sd_m is refitted by bisection too. Memoized (the page refits every refresh).
@@ -111,7 +140,7 @@
       }
     } else if (s0 != null) mu_m = v6Mu(sd_m, sp, 1, s0);
     const out = { v6: true, mu_m, sd_m, sd_t: V6.sd_t, rho: V6.rho,
-      mu_t: L.total != null ? L.total - V6.sd_t * ninv(1 - (L.over_p ?? 0.5)) : 44 };
+      mu_t: L.total != null ? v6MuT(mu_m, sd_m, V6.rho, V6.sd_t, Number(L.total), clamp(L.over_p ?? 0.5, 0.01, 0.99)) : 44 };
     v6Fits.set(ck, out);
     return out;
   }
@@ -173,7 +202,13 @@
       out.mu_m = -z0 * out.sd_m;
     } else if (s0 != null) { out.sd_m = 13.5; out.mu_m = s0 - z1 * 13.5; }
     else { out.sd_m = 13.5; out.mu_m = 0; }
-    out.mu_t = L.total != null ? L.total - sdT * ninv(1 - (L.over_p ?? 0.5)) : (sdT > 14 ? 55 : 44);
+    // Total: simFootball draws max(|margin|, N(mu_t, sd_t)), so P(over L) = 1 − P(|margin| ≤ L)·Φ((L − mu_t)/sd_t).
+    // Solving that (instead of a plain normal) keeps lopsided games at their market over price (audit 11/4/2026 #7).
+    if (L.total != null) {
+      const Lt = Number(L.total), op = clamp(L.over_p ?? 0.5, 0.01, 0.99);
+      const q = ncdf((Lt - out.mu_m) / out.sd_m) - ncdf((-Lt - out.mu_m) / out.sd_m);
+      out.mu_t = Lt - sdT * ninv(clamp((1 - op) / Math.max(q, 1e-9), 0.001, 0.999));
+    } else out.mu_t = sdT > 14 ? 55 : 44;
     return out;
   }
 
