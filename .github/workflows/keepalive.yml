@@ -1,0 +1,30 @@
+# Keeps the hourly db-health check from being switched off in the off-season.
+# GitHub disables scheduled workflows in public repos after 60 days with no repository activity.
+# Re-enabling a workflow through the API resets that clock without making a commit, so this runs
+# on the 1st and 15th of each month (well under 60 days) and re-enables db-health.yml and itself.
+# Added 11/4/2026 (Backlog "Make db-health also catch a dead watcher + GitHub 60-day pause").
+# Test by hand:  gh workflow run keepalive.yml   (run from Website/)
+name: keepalive
+
+on:
+  schedule:
+    - cron: '23 14 1,15 * *'   # 14:23 UTC on the 1st and 15th
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Re-enable the scheduled workflows
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          for wf in db-health.yml keepalive.yml; do
+            gh api -X PUT "repos/$REPO/actions/workflows/$wf/enable"
+            echo "$wf enabled"
+          done
