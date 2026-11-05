@@ -229,6 +229,8 @@ details summary{cursor:pointer;font-weight:600;font-size:15px;list-style-positio
 .g-trg .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
 .g-trg .t{font-weight:600;font-size:14.5px}
 .g-trg .body{font-size:12.5px;color:var(--muted)}
+.g-trg .kx{font-size:12px;color:var(--muted);border-top:1px dashed var(--line);padding-top:5px}
+.g-trg.fired .kx{color:#fff;border-top-color:rgba(255,255,255,.45)}
 .g-trg .st{font-size:12px;font-weight:650;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 8px;white-space:nowrap}
 .g-trg .g-sl .track b{background:var(--alert)}
 .g-trg.fired{background:var(--alert);border-color:var(--alert);color:#fff}
@@ -1025,6 +1027,92 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     return { n: ids.length, win, lose, done: !pend.length, won, lost, pBlack };
   }
 
+  // --- Kalshi prices for hedge triggers (since 11/4/2026) ---
+  // The browser can't call Kalshi (no CORS), so the Edge Function `kalshi-lines` fetches the game's moneyline / spread /
+  // total markets (Supabase/functions/kalshi-lines). Asked only for NFL games that are live and have a trigger, at most
+  // every KX_EVERY_MS. Anything missing (function not deployed, Kalshi down, no market) = the card works as before
+  // (sized at the plan's floor, fair price beside it) plus a "No Kalshi price" line. A price older than KX_STALE_MS is not used.
+  const KX_URL = `${SB_URL}/functions/v1/kalshi-lines`;
+  const KX_EVERY_MS = 20000, KX_STALE_MS = 90000, KX_TIMEOUT_MS = 8000, KX_RETRY_MS = 10 * 60000, KX_MAX_OFF = 3;
+  const kxKey = (g) => `${g.day}:${g.away}@${g.home}`;
+  const kxAllIn = (c) => c + 0.07 * c * (1 - c);   // price + Kalshi taker fee per contract, same as plan.html kalshiAllIn
+  st.kx = { at: 0, games: {}, missing: {}, err: null, next: 0, ok: false };
+  function kxWanted() {
+    const out = new Map();
+    for (const t of FROZEN ? [] : currentPlan()?.plan.triggers || []) {
+      const g = findGame(t);
+      if (g && g.league === "NFL" && g.state === "in" && g.day) out.set(kxKey(g), g);
+    }
+    return [...out.keys()].slice(0, 8);
+  }
+  let kxBusy = false;
+  async function kalshiInBackground() {
+    const keys = kxWanted();
+    if (kxBusy || !keys.length || Date.now() < st.kx.next) return;
+    kxBusy = true;
+    try {
+      const r = await Auth.fetch(`${KX_URL}?games=${encodeURIComponent(keys.join(","))}`, { cache: "no-store", signal: AbortSignal.timeout(KX_TIMEOUT_MS) });
+      const d = await r.json().catch(() => null);
+      if (!r.ok || !d || d.error || typeof d.games !== "object") throw new Error(d && d.error ? d.error : "HTTP " + r.status);
+      Object.assign(st.kx, { at: Date.now(), games: d.games || {}, missing: d.missing || {}, err: null, ok: true, next: Date.now() + KX_EVERY_MS });
+    } catch (e) {
+      // Never answered yet (likely not deployed): try again in 10 min, so the console isn't filled with failed calls.
+      Object.assign(st.kx, { err: e.name === "TimeoutError" ? "no answer" : e.message || "failed", next: Date.now() + (st.kx.ok ? KX_EVERY_MS : KX_RETRY_MS) });
+    } finally { kxBusy = false; }
+    if (!busy) render();
+  }
+  // Which Kalshi contract is the other side of our market, and what it costs. Strike rule: the contract must pay in every
+  // result where our side doesn't win (loses or pushes); of those, the strike nearest our line, at most KX_MAX_OFF points
+  // off. So the price is never better than an exact match would be, and an off-line strike only adds results where both
+  // sides pay (a middle). Kalshi lists half-point strikes only, spreads per team as "TEAM wins by over k":
+  //   our X −s (fav):  NO on "X by over k", k ≥ floor(s)+0.5  → shown as "Y +k"
+  //   our X +s (dog):  YES on "Y by over k", k ≤ ceil(s)−0.5  → "Y −k"
+  //   our Over L:      NO on "Over k", k ≥ floor(L)+0.5      → "Under k";   our Under L: YES on "Over k", k ≤ ceil(L)−0.5 → "Over k"
+  //   ml:              YES on the other team.
+  function kalshiPick(q, mk, home, away) {
+    const one = (x, side, label, strike) => {
+      const c = side === "yes" ? x.ya : x.na;
+      if (x.s !== "active" || !(c > 0 && c < 1)) return null;
+      const allin = kxAllIn(c);
+      return { t: x.t, side, label, strike, c, allin, d: 1 / allin, odds: amer(1 / allin), size: side === "yes" ? x.yas : x.ybs,
+        exact: strike == null || Math.abs(strike - Math.abs(mk.line)) < 1e-9 };
+    };
+    if (mk.kind === "ml") {
+      const them = mk.side === "home" ? away : home, x = q.ml && q.ml[them];
+      return (x && one(x, "yes", `${them} ML`, null)) || { none: `no ${them} ML price` };
+    }
+    const L = mk.line, by = (f) => (a, b) => f * (a.strike - b.strike);
+    let cands = [], side, label;
+    if (mk.kind === "total") {
+      const tot = q.total || [];
+      if (mk.side === "over") { const k0 = Math.floor(L) + 0.5; cands = tot.filter((x) => x.strike >= k0 - 1e-9).sort(by(1)); side = "no"; label = (k) => `Under ${k}`; }
+      else { const k0 = Math.ceil(L) - 0.5; cands = tot.filter((x) => x.strike <= k0 + 1e-9).sort(by(-1)); side = "yes"; label = (k) => `Over ${k}`; }
+    } else if (mk.kind === "spread") {
+      const us = mk.side === "home" ? home : away, them = mk.side === "home" ? away : home, sp = q.spread || [];
+      if (L > 0) { const k0 = Math.ceil(L) - 0.5; cands = sp.filter((x) => x.team === them && x.strike <= k0 + 1e-9).sort(by(-1)); side = "yes"; label = (k) => `${them} ${fmtLine(-k)}`; }
+      else { const k0 = Math.floor(-L) + 0.5; cands = sp.filter((x) => x.team === us && x.strike >= k0 - 1e-9).sort(by(1)); side = "no"; label = (k) => `${them} ${fmtLine(k)}`; }
+    }
+    for (const x of cands) {
+      if (Math.abs(x.strike - Math.abs(L)) > KX_MAX_OFF + 1e-9) break;
+      const p = one(x, side, label(x.strike), x.strike);
+      if (p) return p;
+    }
+    return { none: `no Kalshi line near ${mk.theirs}` };
+  }
+  // null = not looked up (game not live, replay); { none } = looked up, no usable price; { q } = the price to use.
+  function kalshiFor(g, mk) {
+    if (FROZEN || !g || g.state !== "in") return null;
+    if (g.league !== "NFL") return { none: "NFL only" };
+    const k = st.kx, age = Date.now() - k.at;
+    if (!k.at) return { none: k.err ? "couldn't reach it" : "checking…" };
+    if (age > KX_STALE_MS) return { none: k.err ? "couldn't reach it" : "price is stale" };
+    const q = k.games[kxKey(g)];
+    if (!q) return { none: k.missing[kxKey(g)] || "no Kalshi game" };
+    const p = kalshiPick(q, mk, g.home, g.away);
+    return p.none ? { none: p.none } : { q: { ...p, at: k.at } };
+  }
+  const cents = (c) => (Math.round(c * 1000) / 10).toFixed(Math.abs(c * 100 - Math.round(c * 100)) < 0.05 ? 0 : 1) + "¢";
+
   // --- hedge triggers (shown on the trigger's own game card) ---
   // Market (since 11/3/2026): a trigger rides on who wins (ml), a spread, or a total. Plans saved since 11/3 store `kind`/`line`;
   // older ones are read from the bets on that game: one spread or total line and nothing else → that market, else ml.
@@ -1115,33 +1203,57 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     const br = fromPlan ? { good: num(t.pl_if_ours_wins), bad: num(t.pl_if_ours_loses) } : g ? riding(g, res, mk) : null;
     const none = !fromPlan && (!br || (br.good - br.bad) * (1 - at) < 2);
     const q = wp != null && wp >= at ? wp : at;
-    const H = br ? hedgeAt(br, q, floor) : null;
-    // Fires when our side's chance is at the trigger AND a fair price on the other side is at least the plan's floor
-    // (a book can't beat fair; the card still says to check the real price before betting).
-    const hit = wp != null && wp >= at && wp < 0.995 && !none && (!H || H.fairOk);
-    return { t, g, mk, ours, theirs, wp, src, at, hit, home, fromPlan, none, floor, H };
+    // Kalshi's price on the other side (live NFL only, see kalshiFor). With one: fires when the chance is at the trigger
+    // AND Kalshi's all-in price is at least the plan's floor, and the hedge is sized at that price. Without one: as before,
+    // fires when the fair price is at least the floor (a book can't beat fair), sized at the floor.
+    const kx = kalshiFor(g, mk), kq = kx && kx.q;
+    const reached = wp != null && wp >= at && wp < 0.995 && !none;
+    const kOk = kq ? floor == null || kq.d >= dec(floor) - 1e-9 : null;
+    const useK = !!(reached && kq && kOk);
+    const H = br ? hedgeAt(br, q, floor, useK ? kq.d : null) : null;
+    const hit = reached && (kq ? kOk : (!H || H.fairOk));
+    return { t, g, mk, ours, theirs, wp, src, at, hit, home, fromPlan, none, floor, H, kx, useK, reached };
+  }
+  // The small Kalshi line under a card (null when the game isn't live).
+  function kalshiText(sx) {
+    const { kx, H, floor, mk, useK } = sx;
+    if (!kx) return null;
+    if (kx.none) return `No Kalshi price (${kx.none})`;
+    const k = kx.q, need = H ? H.good - H.bad : null;   // contracts = payout = what the two branches differ by
+    let s = `Kalshi ${k.label}: ${cents(k.c)} ask, ${cents(k.allin)} with fee = ${k.odds}`;
+    if (floor != null) s += ` · plan's floor ${fmtLine(floor)}`;
+    if (!k.exact) s += ` · Kalshi has no ${mk.theirs}; ${k.label} is the nearest line that still covers it`;
+    if (useK && need != null && k.size != null && k.size < need) s += ` · only ${Math.floor(k.size)} contracts at that price (need ~${Math.ceil(need)})`;
+    return s + ` · ${new Date(k.at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}`;
   }
   // Card text, shared by the game card and the Plan card.
   function hedgeText(sx) {
-    const { g, mk, ours, theirs, wp, src, at, hit, fromPlan, H, floor } = sx;
+    const { g, mk, ours, theirs, wp, src, at, hit, fromPlan, H, floor, kx, useK } = sx;
+    const kq = kx && kx.q;
     const now = !g ? "" : g.state === "pre" ? " · not started" : g.state === "post" ? " · final" : wp != null ? ` · ${ours} ${pctS(wp)} now (${src})` : "";
-    const price = floor != null ? `at ${H.odds} or better (fair ${H.fair})` : `at ${H.odds} (fair; books pay less)`;
-    const lock = mk.exact ? `locks ${money0(H.locked)}` : `about ${money0(H.locked)} either way, on average`;
-    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${theirs} ${price} → ${lock}`
+    const price = useK ? `at ${H.odds} on Kalshi (fair ${H.fair})` : floor != null ? `at ${H.odds} or better (fair ${H.fair})` : `at ${H.odds} (fair; books pay less)`;
+    const side = useK ? kq.label : theirs;   // Kalshi's line can differ from ours (nearest strike that still covers it)
+    const lock = mk.exact ? `locks ${useK && !kq.exact ? "at least " : ""}${money0(H.locked)}` : `about ${money0(H.locked)} either way, on average`;
+    const title = hit ? `${ours} ${pctS(wp)} now: hedge ~${money(H.stake, false)} on ${side} ${price} → ${lock}`
       : `If ${ours} reaches ${pctS(at)}: ~${money(H.stake, false)} on ${theirs} ${price} → ${lock}`;
+    const ev = useK ? (H.evCost >= 0.005 ? ` · costs ~${money(H.evCost, false)} EV at Kalshi's price` : ` · ${money(-H.evCost)} EV vs the model at Kalshi's price`)
+      : H.evCost > 0.5 ? ` · costs ~${money(H.evCost, false)} EV` : "";
     const why = (fromPlan ? ` · assumes the plan's picks on this game get placed` : ` · from your placed bets` + (mk.exact ? "" : ", on average"))
-      + (mk.guessed ? ` · line read from the bet` : "") + (H.evCost > 0.5 ? ` · costs ~${money(H.evCost, false)} EV` : "");
+      + (mk.guessed ? ` · line read from the bet` : "") + ev;
     const body = `If ${ours} ${mk.verb}: ${money0(H.good)} → ${money0(H.locked)} (${money0(H.stake).replace("+", "")} less) · if ${theirs} ${mk.verb}: ${money0(H.bad)} → ${money0(H.locked)} (${money0(H.locked - H.bad).replace("+", "")} better)${now}${why}`;
-    const waiting = wp != null && wp >= at && !hit && H && !H.fairOk ? ` · waiting: fair price on ${theirs} is ${H.fair}, short of the plan's ${fmtLine(floor)}` : "";
-    return { title, body: body + waiting };
+    const waiting = wp == null || wp < at || hit || !H ? ""
+      : kq ? ` · waiting: Kalshi ${kq.label} is ${kq.odds} with the fee, short of the plan's ${fmtLine(floor)}`
+      : !H.fairOk ? ` · waiting: fair price on ${theirs} is ${H.fair}, short of the plan's ${fmtLine(floor)}` : "";
+    return { title, body: body + waiting, kalshi: kalshiText(sx) };
   }
   function hedgeCard(sx, league) {
     const { ours, wp, at, hit } = sx;
-    const { title, body } = hedgeText(sx);
+    const { title, body, kalshi } = hedgeText(sx);
     const pct = wp == null ? 0 : Math.min(wp, 1) * 100;
     return h("div", { class: "g-trg" + (hit ? " fired" : "") },
       h("div", { class: "top" }, h("div", { class: "t num" }, title), h("span", { class: "st" }, hit ? "HEDGE NOW" : "Armed")),
       h("div", { class: "body num" }, body),
+      kalshi ? h("div", { class: "kx num" }, kalshi) : null,
       wp == null ? null : h("div", { class: "g-sl" }, h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), h("b", { style: `left:${at * 100}%;right:auto` })),
         h("div", { class: "txt num" }, h("span", {}, `${ours} now `, h("b", {}, pctS(wp))), h("span", {}, "trigger " + pctS(at)))));
   }
@@ -1252,8 +1364,9 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
   // fairOk = the fair price is at least the floor (no book beats fair). evCost = expected P/L given up by hedging.
   function amer(d) { return d >= 2 ? "+" + Math.round((d - 1) * 100) : String(Math.round(-100 / (d - 1))); }
   function dec(o) { return o > 0 ? 1 + o / 100 : 1 + 100 / -o; }
-  function hedgeAt({ good, bad }, q, floor) {
-    const fd = 1 / (1 - q), d = floor != null ? dec(floor) : fd;
+  // px (since 11/4/2026) = a real price to size at instead (Kalshi's all-in decimal odds, when it clears the floor).
+  function hedgeAt({ good, bad }, q, floor, px = null) {
+    const fd = 1 / (1 - q), d = px != null ? px : floor != null ? dec(floor) : fd;
     const stake = (good - bad) / d, locked = good - stake;
     return { good, bad, stake, locked, odds: amer(d), fair: amer(fd), fairOk: floor == null || fd >= d - 1e-9,
       evCost: q * good + (1 - q) * bad - locked };
@@ -1293,8 +1406,9 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     // Live-hedge triggers. Ones whose game has a card are shown there (under its Hedge triggers); only the rest stay here.
     let anyHit = false;
     const trigs = (plan.triggers || []).map((t) => hedgeState(t, res)).filter((sx) => { anyHit = anyHit || sx.hit; return !sx.none && !(sx.g && st.cardIds.has(sx.g.id)); }).map((sx) => {
-      const { title, body } = hedgeText(sx);
-      return h("div", { class: "trig" + (sx.hit ? " hit" : "") }, h("span", { class: "tt num" }, (sx.hit ? "⚠ " : "") + title), h("span", { class: "td num" }, body));
+      const { title, body, kalshi } = hedgeText(sx);
+      return h("div", { class: "trig" + (sx.hit ? " hit" : "") }, h("span", { class: "tt num" }, (sx.hit ? "⚠ " : "") + title), h("span", { class: "td num" }, body),
+        kalshi ? h("span", { class: "td kx num" }, kalshi) : null);
     });
     if (anyHit) document.title = "⚠ Live Bets";
 
@@ -1352,6 +1466,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
       else {
         if (!st.linesInfo && !st.lines.length) { try { await loadCachedLines(); } catch {} }
         linesInBackground(full, linesMax);   // not awaited
+        kalshiInBackground().catch(() => {});   // not awaited, never breaks the refresh; only asks when an NFL game with a trigger is live
         await loadSummaries();
       }
       st.loaded = true; st.lastAt = Date.now();
