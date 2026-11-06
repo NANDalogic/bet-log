@@ -839,7 +839,13 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     return `${Math.floor(hh / 24)}d ${hh % 24}h left`;
   }
   const whenText = (t) => new Date(t).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-  const promoValue = (p) => (p.amount != null ? money(p.amount, false) : p.boost != null ? `${Math.round(p.boost * 100)}% boost` : "");
+  // promos.ev is either a saved plan's pick ("planned 11/06 2:05 PM CT: <label>", trigger plan_items_promo_ev)
+  // or betmath promo-ev's rough estimate ("est. at limits: ..."). Older rows may have neither prefix.
+  const EST_RE = /^est\. at limits:\s*/i, PLAN_RE = /^planned\s+/i;
+  const evLabel = (b) => (PLAN_RE.test(b) ? "Planned EV " : "Est. EV ");
+  const evBasis = (b) => (!b ? "" : PLAN_RE.test(b) ? " · " + b.replace(PLAN_RE, "")
+    : EST_RE.test(b) ? " · at the terms' limits: " + b.replace(EST_RE, "") : " · " + b);
+  const promoValue = (p) =>(p.amount != null ? money(p.amount, false) : p.boost != null ? `${Math.round(p.boost * 100)}% boost` : "");
   function renderPromos() {
     const list = $("#promoList"), note = $("#promoNote"), stats = $("#promoStats");
     note.hidden = true;
@@ -870,7 +876,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     $("#promoSub").textContent = [
       "Soonest first, times in your time zone",
       bonus ? `${money(bonus, false)} in bonus bets` : null,
-      "Est. EV assumes max stake at the odds limit in the terms",
+      "EV = the saved plan's pick once a plan uses the promo, else a rough estimate at max stake and the worst odds the terms allow",
       ignored ? "Range and Verdict filters don't apply here" : null,
     ].filter(Boolean).join(" · ");
 
@@ -883,7 +889,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
         h("span", { class: "pm" }, [p.book, p.league || "Any sport", p.type, "Place by " + whenText(p.exp)].filter(Boolean).join(" · ")),
         h("span", { class: "pc num" }, left(ms)),
         h("span", { class: "pe" }, p.ev != null
-          ? ["Est. EV ", h("b", { class: "num " + cls(p.ev) }, money(p.ev)), p.basis ? " · " + p.basis : ""]
+          ? [evLabel(p.basis), h("b", { class: "num " + cls(p.ev) }, money(p.ev)), evBasis(p.basis)]
           : "No EV estimate" + (p.basis ? ": " + p.basis : "")),
         p.terms ? h("span", { class: "px" }, p.terms) : null);
     }) : [h("div", { class: "empty" }, `Nothing${filtered ? " matching these filters" : ""} expires in the next ${WIN_LABEL[promoState.win]}.`)]));
