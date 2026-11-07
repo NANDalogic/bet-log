@@ -1,0 +1,630 @@
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Market Making 101</title>
+<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
+<link rel="preload" href="https://nandalogic.com/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="https://nandalogic.com/assets/nandalogic-core.css?v=1">
+<link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2"><link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
+<style>
+/* Market Making 101 (11/6/2026): static teaching page under the Research tab. No database reads, no auth.js.
+   The Kalshi ticket below is rebuilt in HTML from Josh's screenshot (no account balance; the site is public).
+   Fee math = Kalshi fee schedule (July 2026): taker 0.07·C·P·(1−P), maker 0.0175·C·P·(1−P), rounded up to the cent.
+   Colors are design-system aliases, same as research.html; no hex colors. */
+:root{
+  --ink:var(--text); --ink-2:var(--text-2); --muted:var(--text-muted); --line:var(--border); --chip:var(--raised);
+  --s1:var(--chart-1); --s2:var(--chart-2); --s0:var(--chart-other); --warn:var(--warning); --sans:var(--font);
+}
+.site-header{position:relative;margin:-12px -16px 12px}
+.site-header .bar{gap:4px}
+a.brand-sub{display:inline-flex;align-items:center;min-height:var(--tap);text-decoration:none}
+a.brand-sub:hover{color:var(--on-navy)}
+.site-header .site-nav{margin-left:auto}
+@media (max-width:600px){.site-header .wordmark{display:none}}
+@media (max-width:440px){.site-header .site-nav a{padding:0 7px}.site-header .brand-sub::before{margin:0 4px 0 2px}}
+*{box-sizing:border-box}
+html{scroll-padding-top:12px}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.5;
+  padding:max(12px,env(safe-area-inset-top)) 16px max(40px,env(safe-area-inset-bottom))}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.num{font-variant-numeric:tabular-nums}
+.eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
+.eyebrow a{color:var(--s1);text-decoration:none}
+h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em;line-height:1.2}
+h2{font-size:18px;margin:0;line-height:1.25}
+h3{font-size:15px;margin:0}
+p{margin:0}
+a{color:var(--s1)}
+.sub{font-size:13px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.tldr{font-size:16px;font-weight:600;padding-left:10px;border-left:3px solid var(--s1)}
+.jump{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+.jump::-webkit-scrollbar{display:none}
+.jump a{flex:none;font-size:13px;font-weight:600;text-decoration:none;color:var(--ink-2);background:var(--chip);border-radius:999px;padding:6px 12px}
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--hue,var(--muted));border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:22px;line-height:1.15;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--ink-2)}
+.callout{border:1px solid var(--line);border-left:4px solid var(--hue,var(--muted));border-radius:10px;padding:10px 12px;font-size:14.5px;display:flex;flex-direction:column;gap:6px}
+.callout-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+details.more{border:1px solid var(--line);border-radius:10px}
+details.more>summary{cursor:pointer;min-height:var(--tap);display:flex;align-items:center;padding:0 12px;font-size:14px;font-weight:600;color:var(--ink-2);list-style:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"▸";margin-right:8px;transition:transform .2s}
+details.more[open]>summary::before{transform:rotate(90deg)}
+details.more>.body{padding:0 12px 12px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+ul.tight{margin:0;padding-left:18px;font-size:14.5px} ul.tight li{margin:4px 0}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+td.r,th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+tr:last-child>*{border-bottom:0}
+thead th{background:var(--chip);font-size:12px}
+.pos{color:var(--good);font-weight:700} .neg{color:var(--bad);font-weight:700} .zero{color:var(--muted);font-weight:700}
+.foot{font-size:12.5px;color:var(--muted);text-align:center;padding:8px 0}
+
+/* shop analogy */
+.shop{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.role{border:1px solid var(--line);border-top:3px solid var(--hue);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:4px;font-size:14px}
+.role b{font-size:15px}
+.role .big{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+
+/* $1 bar */
+.dollar{display:flex;height:40px;border-radius:8px;overflow:hidden;font-size:13px;font-weight:700}
+.dollar span{display:flex;align-items:center;justify-content:center;white-space:nowrap}
+.dollar .y{background:var(--good-soft);color:var(--good)}
+.dollar .n{background:var(--bad-soft);color:var(--bad)}
+.dollar .x{background:var(--warning);color:var(--page);min-width:30px}
+.dlabels{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+
+/* rebuilt Kalshi ticket */
+.mock{border:1px solid var(--line);border-radius:12px;background:var(--page);padding:12px;display:flex;flex-direction:column;gap:10px;font-size:14px}
+.m-head{display:flex;flex-direction:column;gap:2px}
+.m-lg{font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted)}
+.m-head b{font-size:17px}
+.m-row{display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+.m-pct{font-weight:800;font-size:17px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.m-btns{display:flex;gap:6px;align-items:center}
+.pb{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;padding:5px 8px;font-size:13px;font-weight:700;white-space:nowrap;border:1px solid}
+.pb.y{color:var(--good);border-color:var(--good);background:var(--good-soft)}
+.pb.n{color:var(--bad);border-color:var(--bad)}
+.ticket{border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.t-top{display:flex;align-items:center;gap:12px;font-size:12.5px;font-weight:700;letter-spacing:.06em}
+.t-top .dim{color:var(--muted)}
+.t-top .lim{margin-left:auto}
+.t-side{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.t-side .pb{padding:7px 12px}
+.t-side .int{margin-left:auto;font-size:12.5px;color:var(--ink-2);text-decoration:underline dotted}
+.field{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.field span{color:var(--muted)} .field b{font-variant-numeric:tabular-nums}
+.field.focus{border-color:var(--ink-2)}
+.t-note{font-size:12.5px;color:var(--muted)}
+.t-cost{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:baseline}
+.t-cost .big{font-size:22px;font-weight:800;font-variant-numeric:tabular-nums;text-align:right}
+.t-cost .gain{color:var(--good);font-size:12.5px;text-align:right;grid-column:2}
+.t-buy{border-radius:999px;border:2px solid var(--warning);text-align:center;font-weight:700;padding:8px;color:var(--ink-2)}
+.bub{flex:none;display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;border:0;background:var(--accent);color:var(--on-accent);font:700 12px/1 var(--sans);cursor:pointer;padding:0;vertical-align:middle;box-shadow:0 0 0 0 var(--accent)}
+.bub.on{box-shadow:0 0 0 4px var(--accent-soft);transform:scale(1.12)}
+.hl{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
+.explain{position:sticky;bottom:8px;z-index:2;border:1px solid var(--accent);border-radius:12px;background:var(--surface);padding:10px 12px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow-2)}
+.explain .ex-t{display:flex;align-items:center;gap:8px;font-weight:700;font-size:15px}
+.explain p{font-size:14.5px}
+.ex-nav{display:flex;gap:8px}
+.btn{min-height:var(--tap);border-radius:10px;border:1px solid var(--line);background:var(--chip);color:var(--ink);font:600 14px var(--sans);padding:0 14px;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.btn:disabled{opacity:.4;cursor:default}
+.ex-nav .btn{flex:1}
+
+/* sandbox */
+.ctl{display:flex;flex-direction:column;gap:6px}
+.ctl label{font-size:13px;color:var(--ink-2);font-weight:600;display:flex;justify-content:space-between}
+input[type=range]{width:100%;height:36px;accent-color:var(--accent)}
+.seg{display:flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.seg button{flex:1;min-height:40px;border:0;background:none;color:var(--ink-2);font:600 13.5px var(--sans);cursor:pointer;padding:0 6px}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+.check{display:flex;align-items:center;gap:10px;font-size:14px;min-height:var(--tap);cursor:pointer}
+.check input{width:20px;height:20px;accent-color:var(--accent)}
+.book{display:grid;grid-template-columns:1fr;gap:3px;font-size:13px;font-variant-numeric:tabular-nums}
+.lvl{display:grid;grid-template-columns:52px 1fr 60px;gap:8px;align-items:center}
+.lvl .bar{height:16px;border-radius:4px}
+.lvl.ask .bar{background:var(--bad-soft)} .lvl.bid .bar{background:var(--good-soft)}
+.lvl.me .bar{background:var(--accent)} .lvl.me{font-weight:800}
+.lvl .px{text-align:right}
+.lvl .who{font-size:12px;color:var(--muted)}
+.lvl.me .who{color:var(--accent-text,var(--ink))}
+.gap{text-align:center;font-size:12px;color:var(--warning);font-weight:700;padding:2px 0}
+.verdict{border-radius:10px;padding:10px 12px;font-size:14.5px;border:1px solid var(--line);border-left:4px solid var(--hue,var(--muted))}
+.verdict b{display:block;font-size:15.5px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:14px;margin:0}
+.kv dt{color:var(--ink-2)} .kv dd{margin:0;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+
+/* scenarios */
+.tabs{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -14px;padding:0 14px}
+.tabs::-webkit-scrollbar{display:none}
+.tabs button{flex:none;border:1px solid var(--line);background:var(--chip);color:var(--ink-2);border-radius:999px;padding:7px 12px;font:600 13px var(--sans);cursor:pointer;min-height:36px}
+.tabs button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.sc-title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tone{font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;border:1.5px solid currentColor}
+.tone.good{color:var(--good)} .tone.bad{color:var(--bad)} .tone.meh{color:var(--warning)}
+svg.chart{width:100%;height:auto;display:block}
+.chart .grid{stroke:var(--chart-grid,var(--line));stroke-width:1}
+.chart .ax{fill:var(--muted);font-size:10px;font-family:var(--sans)}
+.chart .ln{fill:none;stroke:var(--s1);stroke-width:2.5;stroke-linejoin:round;stroke-linecap:round}
+.chart .bidln{stroke:var(--good);stroke-width:1.5;stroke-dasharray:5 4}
+.chart .askln{stroke:var(--bad);stroke-width:1.5;stroke-dasharray:5 4}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12.5px;color:var(--ink-2)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+.legend i.dash{height:0;border-top:2px dashed;border-radius:0;vertical-align:3px;width:16px}
+.chart .dot{fill:var(--s1)}
+.chart .fill{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+.step{display:flex;flex-direction:column;gap:4px;border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-height:118px}
+.step .when{font-size:12.5px;color:var(--muted);font-weight:700;display:flex;justify-content:space-between}
+.step p{font-size:14.5px}
+.step .filled{display:inline-block;margin-top:2px;font-size:12.5px;font-weight:800;color:var(--on-accent);background:var(--accent);border-radius:6px;padding:1px 8px;align-self:flex-start}
+.dots{display:flex;gap:6px;justify-content:center}
+.dots i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.dots i.on{background:var(--accent)}
+.result[hidden]{display:none}
+.result{display:flex;flex-direction:column;gap:8px}
+
+/* checklist + quiz */
+.todo{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.todo li{display:grid;grid-template-columns:26px 1fr;gap:8px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:14.5px}
+.todo .box{width:22px;height:22px;border-radius:6px;border:2px solid var(--accent);margin-top:1px}
+.todo b{display:block}
+.q{display:flex;flex-direction:column;gap:8px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.q p.ask{font-weight:600;font-size:15px}
+.opts{display:flex;flex-direction:column;gap:6px}
+.opts button{text-align:left;min-height:var(--tap);border:1px solid var(--line);border-radius:10px;background:var(--chip);color:var(--ink);font:500 14.5px var(--sans);padding:8px 12px;cursor:pointer}
+.opts button.right{border-color:var(--good);background:var(--good-soft)}
+.opts button.wrong{border-color:var(--bad);background:var(--bad-soft)}
+.fb{font-size:14px;padding-left:10px;border-left:3px solid var(--hue,var(--muted))}
+.fb[hidden]{display:none}
+.score{font-size:14px;font-weight:700;color:var(--ink-2)}
+dl.gl{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0;font-size:14px}
+dl.gl dt{font-weight:700} dl.gl dd{margin:0;color:var(--ink-2)}
+</style></head><body>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="https://nandalogic.com" aria-label="NANDalogic home"><svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.79 5.21L16.46 17.88L17.88 16.46L5.21 3.79Z"/><path d="M18.5 4.5h2v11.7h-2zM4.5 18.5h11.7v2H4.5z"/><rect x="0" y="0" width="9" height="9" rx="2.2"/><rect x="15" y="0" width="9" height="9" rx="2.2"/><rect x="0" y="15" width="9" height="9" rx="2.2"/><path fill-rule="evenodd" d="M19.5 15a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9zM19.5 17.4a2.1 2.1 0 1 1 0 4.2a2.1 2.1 0 1 1 0-4.2z"/></svg><span class="wordmark"><b>NAND</b>alogic</span></a>
+    <a class="brand-sub" href="index.html">bets</a>
+    <nav class="site-nav" aria-label="Bets pages"><a href="index.html">History</a><a href="live.html">Live</a><a href="plan.html">Plan</a><a href="research.html" aria-current="page">Research</a></nav>
+    <button type="button" class="icon-btn" id="themeBtn" aria-label="Switch to light mode"></button>
+  </div>
+</header>
+<script>(function(){var r=document.documentElement,b=document.getElementById("themeBtn");
+var MOON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+var SUN='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+function cur(){return r.getAttribute("data-theme")==="light"?"light":"dark"}
+function lab(){var d=cur()==="dark";b.setAttribute("aria-label",d?"Switch to light mode":"Switch to dark mode");b.innerHTML=d?SUN:MOON}
+b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setAttribute("data-theme",n);try{localStorage.setItem("theme",n)}catch(e){}lab()});lab()})();</script>
+
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Sports Bets · <a href="research.html">Research</a> · Market Making 101</p>
+    <h1>Market Making 101</h1>
+    <p class="sub" style="margin-top:4px">Nov 6, 2026 · Kalshi fees from its July 2026 fee schedule · about 10 minutes, one thumb</p>
+  </header>
+
+  <nav class="jump" aria-label="On this page">
+    <a href="#shop">The idea</a><a href="#dollar">$1 rule</a><a href="#ticket">Your screenshot</a><a href="#try">Try it</a><a href="#play">5 scenarios</a><a href="#us">For us</a><a href="#ready">Checklist</a><a href="#quiz">Quiz</a>
+  </nav>
+
+  <section class="card" id="shop">
+    <p class="tldr">You can buy at the price on the shelf, or name your own price and wait. Market makers are the ones who wait.</p>
+    <div class="shop">
+      <div class="role" style="--hue:var(--bad)"><b>Taker = shopper</b><span class="big">62¢ now</span><span>Buys whatever is posted. Gets in for sure. Pays the markup and the full fee.</span></div>
+      <div class="role" style="--hue:var(--good)"><b>Maker = shopkeeper</b><span class="big">58¢ maybe</span><span>Posts a price and waits. Better price, a quarter of the fee (or none). Might never get filled.</span></div>
+    </div>
+    <div class="callout" style="--hue:var(--s1)"><span class="callout-title">Think: airport currency booth</span>
+      <p>The booth buys euros at $1.05 and sells them at $1.15. It doesn't care where the euro goes next. It earns the 10¢ gap on every customer in a hurry. A Kalshi market maker does the same with YES and NO.</p></div>
+  </section>
+
+  <section class="card" id="dollar">
+    <h2>The one rule: YES + NO = $1</h2>
+    <p>Every contract pays <b>$1</b> if it happens and <b>$0</b> if it doesn't. One person holds YES, another holds NO, and together they always collect exactly $1. So a price is a chance: <b>62¢ ≈ 62%</b>.</p>
+    <div class="dollar" aria-label="Yes 62 cents plus No 39 cents equals 1 dollar and 1 cent">
+      <span class="y" style="width:61.4%">YES 62¢</span><span class="n" style="width:38.6%">NO 39¢</span>
+    </div>
+    <div class="dlabels"><span>Cheapest YES you can buy now</span><span>Cheapest NO</span></div>
+    <p>62¢ + 39¢ = <b>$1.01</b>. That extra <b>1¢</b> is the <b>spread</b>: the gap between the best buy price and the best sell price. It's the shopkeeper's markup. If someone buys a YES at 62¢ from a maker and someone else sells a YES at 61¢ to that maker, the maker keeps 1¢.</p>
+  </section>
+
+  <section class="card" id="ticket">
+    <h2>Your screenshot, labeled</h2>
+    <p class="sub">Rebuilt from your Nov 6 screenshot, with your numbers. Tap any purple number, or step through with Next.</p>
+    <div class="mock" id="mock">
+      <div class="m-head"><span class="m-lg">NFL</span><b>CIN Bengals vs ATL Falcons</b><span class="sub">Begins Sun Nov 8, 9:30 AM ET · $1.6M traded</span></div>
+      <div class="m-row" data-k="1 2 3"><span>CIN Bengals</span><span class="m-pct" data-h="1">61% <button class="bub" data-b="1">1</button></span>
+        <span class="m-btns"><span class="pb y" data-h="2">Yes 62¢</span><button class="bub" data-b="2">2</button><span class="pb n" data-h="3">No 39¢</span><button class="bub" data-b="3">3</button></span></div>
+      <div class="m-row" data-h="4"><span>ATL Falcons</span><span class="m-pct">39%</span>
+        <span class="m-btns"><span class="pb y">Yes 39¢</span><span class="pb n">No 62¢</span><button class="bub" data-b="4">4</button></span></div>
+      <div class="ticket">
+        <div class="t-top"><span>BUY</span><span class="dim">SELL</span><span class="lim">LIMIT ▾</span></div>
+        <b style="font-size:16px">CIN Bengals</b>
+        <div class="t-side"><span class="pb y">YES 62¢</span><span class="pb n">NO 39¢</span><span class="int" data-h="5">3.5% Interest</span><button class="bub" data-b="5">5</button></div>
+        <div class="field" data-h="6"><span>Shares</span><b>50 <button class="bub" data-b="6">6</button></b></div>
+        <div class="field focus" data-h="7"><span>Limit price</span><b>50¢ <button class="bub" data-b="7">7</button></b></div>
+        <div class="t-note" data-h="8">Ask: 62¢ · Bid: 61¢ <button class="bub" data-b="8">8</button></div>
+        <div class="field" data-h="9"><span>Expiration</span><b>11/8/2026 · 8:30 AM CST <button class="bub" data-b="9">9</button></b></div>
+        <div class="field" data-h="10"><span>Submit as resting order only ☐</span><button class="bub" data-b="10">10</button></div>
+        <div class="t-cost"><span data-h="11">Cost <button class="bub" data-b="11">11</button></span><b class="num" style="text-align:right">$25.22</b>
+          <span data-h="12">Max payout <button class="bub" data-b="12">12</button></span><span class="big">$50.00</span><span class="gain">+$24.78</span></div>
+        <div class="t-buy">Buy with 1-Click</div>
+      </div>
+    </div>
+    <div class="explain" id="explain" aria-live="polite">
+      <div class="ex-t"><span class="bub on" id="exNum">1</span><span id="exTitle"></span></div>
+      <p id="exText"></p>
+      <div class="ex-nav"><button class="btn" id="exPrev" type="button">‹ Back</button><button class="btn primary" id="exNext" type="button">Next ›</button></div>
+    </div>
+  </section>
+
+  <section class="card" id="try">
+    <h2>Try it: place the order yourself</h2>
+    <p class="sub">Same Bengals market. Move the slider and watch where your order lands on the <b>order book</b> (the list of everyone's waiting orders). Nothing here touches Kalshi.</p>
+    <div class="ctl"><label for="px"><span>Your YES limit price</span><span class="num" id="pxOut">58¢</span></label><input id="px" type="range" min="45" max="68" step="1" value="58"></div>
+    <div class="ctl"><label><span>Contracts</span></label><div class="seg" id="qtySeg"><button type="button" data-v="10">10</button><button type="button" data-v="50">50</button><button type="button" data-v="100" aria-pressed="true">100</button></div></div>
+    <div class="ctl"><label><span>Market type</span></label><div class="seg" id="mktSeg"><button type="button" data-v="game" aria-pressed="true">Game winner</button><button type="button" data-v="prop">Yardage prop</button></div></div>
+    <label class="check"><input type="checkbox" id="postOnly" checked> Submit as resting order only</label>
+    <div class="book" id="book" aria-label="Order book"></div>
+    <div class="verdict" id="verdict"></div>
+    <dl class="kv" id="sbx"></dl>
+  </section>
+
+  <section class="card" id="play">
+    <h2>Play out the weekend: 5 scenarios</h2>
+    <p class="sub">New numbers. Friday morning you post <b>buy 100 Bengals YES at 58¢</b> (the crowd says 61%). Pick a story, then tap Next to move through the weekend.</p>
+    <div class="tabs" id="scTabs"></div>
+    <div class="sc-title"><h3 id="scName"></h3><span class="tone" id="scTone"></span></div>
+    <svg class="chart" id="scChart" viewBox="0 0 340 150" role="img" aria-label="Bengals chance over the weekend"></svg>
+    <div class="legend" id="scLegend"></div>
+    <div class="step" id="scStep"><div class="when"><span id="scWhen"></span><span id="scPct"></span></div><p id="scText"></p></div>
+    <div class="dots" id="scDots"></div>
+    <div class="ex-nav"><button class="btn" id="scPrev" type="button">‹ Back</button><button class="btn primary" id="scNext" type="button">Next ›</button></div>
+    <div class="result" id="scResult" hidden>
+      <div class="tbl"><table><tbody id="scTable"></tbody></table></div>
+      <div class="callout" id="scLesson" style="--hue:var(--s1)"><span class="callout-title">The lesson</span><p id="scLessonText"></p></div>
+    </div>
+  </section>
+
+  <section class="card" id="sum">
+    <h2>All five, side by side</h2>
+    <div class="tbl"><table><thead><tr><th>Story</th><th class="r">Maker (58¢)</th><th class="r">Taker (62¢)</th></tr></thead><tbody id="sumRows"></tbody></table></div>
+    <p class="sub">Averages on 100 contracts, using the chance where each story ends. "Taker" = you bought at the 62¢ ask on Friday morning instead.</p>
+    <div class="callout" style="--hue:var(--warn)"><span class="callout-title">The whole game in two lines</span>
+      <p>When your order fills, you beat the taker by the same <b>$5.22</b> every time (4¢ better price + $1.22 less fee).</p>
+      <p>But fills come most often when news goes <b>against</b> you, and good news leaves you behind. Making money as a maker means the discount has to outrun those bad fills.</p></div>
+  </section>
+
+  <section class="card" id="us">
+    <h2>Where this makes us money</h2>
+    <div class="callout" style="--hue:var(--good)"><span class="callout-title">1 · Every Kalshi trade we already make</span>
+      <p>Lock-mode hedges and any Kalshi bet placed before the game: post below the ask instead of tapping it. On 100 contracts at about 60¢:</p>
+      <div class="tbl"><table><thead><tr><th>Market</th><th class="r">Taker fee</th><th class="r">Maker fee</th></tr></thead><tbody>
+        <tr><td>Game winner, spread, total, TD props</td><td class="r">$1.68</td><td class="r">$0.42</td></tr>
+        <tr><td>Yardage, receptions, team totals, NHL props</td><td class="r">$1.68</td><td class="r">$0.00</td></tr>
+      </tbody></table></div>
+      <p>Plus a better price whenever it fills. Almost no new risk, because we wanted the position anyway.</p></div>
+    <div class="callout" style="--hue:var(--s1)"><span class="callout-title">2 · Wide markets, both sides (an experiment)</span>
+      <p>Props and alt lines often have a 5–10¢ spread instead of 1¢. Quote both sides around our fair price, small, pregame only. This is the real market-maker business, with real risk (scenario 2).</p></div>
+    <div class="callout" style="--hue:var(--bad)"><span class="callout-title">Not for us</span>
+      <p><b>Main game lines</b>: your screenshot shows a 1¢ spread. Pros already own it. <b>Anything during a game</b>: someone always sees the play first (<a href="research.html#ladder">speed ladder</a>).</p></div>
+  </section>
+
+  <section class="card" id="ready">
+    <h2>Before real money: the checklist</h2>
+    <ul class="todo">
+      <li><span class="box"></span><span><b>Know the fair price first.</b> From bet-buddy's no-vig line. Post YES below fair, never above.</span></li>
+      <li><span class="box"></span><span><b>Tick "Submit as resting order only".</b> Then you can never accidentally pay the ask.</span></li>
+      <li><span class="box"></span><span><b>Set Expiration before kickoff.</b> If a key player is questionable, before inactives (90 minutes before kickoff).</span></li>
+      <li><span class="box"></span><span><b>Size for the bad fill.</b> Injury news can move a price 10–15¢. 100 contracts × 13¢ = $13. Pick a size where that's fine.</span></li>
+      <li><span class="box"></span><span><b>Cancel before news drops.</b> NFL injury reports come out Wednesday to Friday afternoons. Open orders are under Portfolio.</span></li>
+      <li><span class="box"></span><span><b>A fill seconds after news is a warning,</b> not luck. Look up why before you add more.</span></li>
+      <li><span class="box"></span><span><b>Start with a hedge you'd place anyway.</b> Worst case, it's the same position at a better price.</span></li>
+    </ul>
+  </section>
+
+  <section class="card" id="quiz">
+    <h2>Quick check</h2>
+    <div id="quizBox" style="display:flex;flex-direction:column;gap:10px"></div>
+    <p class="score" id="quizScore"></p>
+  </section>
+
+  <section class="card" id="say">
+    <h2>Say it in 30 seconds</h2>
+    <p class="tldr">"On Kalshi you either buy at the posted price or post your own and wait. Waiting gets you a better price and a smaller fee. The catch: the people quickest to trade with you are often the ones who just heard news you haven't. Market makers post on both sides and keep the small gap in between, like the currency booth at the airport."</p>
+  </section>
+
+  <details class="more" id="words"><summary>Words on this page</summary><div class="body"><dl class="gl">
+    <dt>Ask</dt><dd>Cheapest price anyone will sell at right now.</dd>
+    <dt>Bid</dt><dd>Highest price anyone will buy at right now.</dd>
+    <dt>Spread</dt><dd>The gap between bid and ask.</dd>
+    <dt>Order book</dt><dd>Everyone's waiting orders, sorted by price.</dd>
+    <dt>Limit order</dt><dd>"Buy at this price or better." Fills now if it can, otherwise waits.</dd>
+    <dt>Resting order</dt><dd>A limit order that's waiting on the book.</dd>
+    <dt>Fill</dt><dd>Your order traded.</dd>
+    <dt>Taker</dt><dd>Trades against an order already on the book. Higher fee.</dd>
+    <dt>Maker</dt><dd>Had the waiting order someone else traded with. Lower fee or none.</dd>
+    <dt>Post-only</dt><dd>Kalshi's "resting order only" box: cancel instead of filling as a taker.</dd>
+    <dt>Adverse selection</dt><dd>Getting filled mainly when the other side knows something you don't.</dd>
+    <dt>Inventory</dt><dd>What a maker holds after one side fills, before the other side does.</dd>
+  </dl></div></details>
+
+  <p class="foot">Static page · no bet data · teaching numbers, not advice · fees from Kalshi's July 2026 schedule</p>
+</main>
+
+<script>
+(function(){
+  // ---------- fee math (Kalshi July 2026 schedule) ----------
+  function fee(rate, c, p){ return Math.ceil(rate * c * p * (1 - p) * 100 - 1e-9) / 100; }
+  function taker(c, p){ return fee(0.07, c, p); }
+  function maker(c, p, prop){ return prop ? 0 : fee(0.0175, c, p); }
+  function money(x){ var s = Math.abs(x).toFixed(2); return (x < -0.004 ? "−$" : "$") + s; }
+  function signed(x){ if (Math.abs(x) < 0.005) return "$0.00"; return (x > 0 ? "+$" : "−$") + Math.abs(x).toFixed(2); }
+  function cls(x){ return Math.abs(x) < 0.005 ? "zero" : (x > 0 ? "pos" : "neg"); }
+  function $(id){ return document.getElementById(id); }
+
+  // ---------- 1. labeled screenshot ----------
+  var EX = [
+    ["61%: the crowd's chance", "Kalshi's headline number. It sits between the best buy price (61¢) and best sell price (62¢). A contract at 61¢ is about a 61% chance, because it pays $1 if it happens."],
+    ["Yes 62¢: the ask", "The cheapest anyone will sell you a Bengals YES right now. Tap it and you're a taker: you get in instantly at 62¢ and pay the full taker fee (83¢ on 50 contracts)."],
+    ["No 39¢: the other side", "The cheapest NO. 62¢ + 39¢ = $1.01, but a YES and a NO together only ever pay $1. That extra 1¢ is the spread, the market makers' markup."],
+    ["The Falcons row is the same market", "Falcons YES at 39¢ is the same bet as Bengals NO at 39¢. One market, two ways to tap it."],
+    ["3.5% interest", "Kalshi pays interest on cash and positions. Nice, but small; it doesn't change which order to place."],
+    ["Shares: 50", "50 contracts. Each pays $1 if the Bengals win and $0 if they lose."],
+    ["Limit price 50¢: your price", "Limit means \"the most I'll pay.\" 50¢ is below the 62¢ ask, so nobody is selling that cheap and nothing happens yet. Your order waits on the order book, which makes you a maker. It fills only if someone sells at 50¢, and that mostly happens if the Bengals' chance drops toward 50%."],
+    ["Ask 62¢ · Bid 61¢", "Best sell price and best buy price right now. A 1¢ gap is tight: pro market makers fight over big games like this ($1.6M traded). Your 50¢ bid sits 11¢ behind the front of the line."],
+    ["Expiration 8:30 AM CST", "Your order cancels itself then, which is kickoff (9:30 ET). Keep it that way: once the game starts, bots take stale orders within seconds."],
+    ["Submit as resting order only", "Kalshi's post-only switch. If your price would fill instantly (62¢ or more), Kalshi cancels the order instead of buying at the ask. Tick it whenever you mean to be the maker."],
+    ["Cost $25.22", "50 × 50¢ = $25.00, plus a 22¢ maker fee (game winners charge makers 0.0175 × 50 × 0.50 × 0.50 = 21.9¢, rounded up). Tapping the 62¢ ask instead would cost $31.00 + 83¢."],
+    ["Max payout $50.00 (+$24.78)", "Only if it fills. Then: Bengals win → $50 back, +$24.78. Bengals lose → −$25.22. Never fills → nothing happens, $0."]
+  ];
+  var cur = 0;
+  function show(i){
+    cur = Math.max(0, Math.min(EX.length - 1, i));
+    $("exNum").textContent = cur + 1;
+    $("exTitle").textContent = EX[cur][0];
+    $("exText").textContent = EX[cur][1];
+    $("exPrev").disabled = cur === 0;
+    $("exNext").textContent = cur === EX.length - 1 ? "Start over" : "Next ›";
+    document.querySelectorAll("#mock .bub").forEach(function(b){ b.classList.toggle("on", +b.dataset.b === cur + 1); });
+    document.querySelectorAll("#mock [data-h]").forEach(function(el){ el.classList.toggle("hl", +el.dataset.h === cur + 1); });
+  }
+  document.querySelectorAll("#mock .bub").forEach(function(b){
+    b.setAttribute("aria-label", "Explain number " + b.dataset.b);
+    b.addEventListener("click", function(){ show(+b.dataset.b - 1); });
+  });
+  $("exPrev").addEventListener("click", function(){ show(cur - 1); });
+  $("exNext").addEventListener("click", function(){ show(cur === EX.length - 1 ? 0 : cur + 1); });
+  show(0);
+
+  // ---------- 2. sandbox ----------
+  var ASK = 62, BID = 61, FAIR = 0.61;
+  var sb = { px: 58, qty: 100, prop: false };
+  function seg(id, key, parse){
+    var box = $(id);
+    box.querySelectorAll("button").forEach(function(b){
+      b.addEventListener("click", function(){
+        box.querySelectorAll("button").forEach(function(x){ x.setAttribute("aria-pressed", x === b ? "true" : "false"); });
+        sb[key] = parse(b.dataset.v); renderSandbox();
+      });
+    });
+  }
+  seg("qtySeg", "qty", function(v){ return +v; });
+  seg("mktSeg", "prop", function(v){ return v === "prop"; });
+  $("px").addEventListener("input", function(){ sb.px = +this.value; renderSandbox(); });
+  $("postOnly").addEventListener("change", renderSandbox);
+
+  function renderSandbox(){
+    var px = sb.px, c = sb.qty, prop = sb.prop, po = $("postOnly").checked;
+    $("pxOut").textContent = px + "¢";
+    // order book: asks 64/63/62, then gap, bids 61/60/59 + you
+    var asks = [[64, 900], [63, 1400], [ASK, 2100]], bids = [[BID, 2300], [60, 1500], [59, 1100]];
+    var crosses = px >= ASK;
+    var rows = asks.map(function(a){ return lvl("ask", a[0], a[1], "selling YES"); });
+    rows.push('<div class="gap">↕ spread ' + (ASK - BID) + '¢</div>');
+    var placed = false;
+    bids.forEach(function(b){
+      if (!crosses && !placed && px >= b[0]) { rows.push(lvl("me", px, c, px === b[0] ? "you (back of this line)" : "you, at the front")); placed = true; }
+      rows.push(lvl("bid", b[0], b[1], "buying YES"));
+    });
+    if (!crosses && !placed) rows.push('<div class="gap" style="color:var(--muted)">⋮</div>', lvl("me", px, c, "you, " + (BID - px) + "¢ behind the best bid"));
+    $("book").innerHTML = rows.join("");
+
+    var v = $("verdict"), out = [];
+    if (crosses && po) {
+      v.style.setProperty("--hue", "var(--warning)");
+      v.innerHTML = "<b>Cancelled, not filled</b>Your " + px + "¢ would cross the " + ASK + "¢ ask and make you a taker. With \"resting order only\" ticked, Kalshi cancels it instead. Untick it to see the taker version.";
+      $("sbx").innerHTML = ""; return;
+    }
+    var p = crosses ? ASK : px, f = crosses ? taker(c, p / 100) : maker(c, p / 100, prop);
+    var cost = c * p / 100 + f, win = c - cost, lose = -cost, ev = FAIR * c - cost;
+    if (crosses) {
+      v.style.setProperty("--hue", "var(--bad)");
+      v.innerHTML = "<b>Fills right now at " + ASK + "¢: you're the taker</b>" + (px > ASK ? "A limit is the most you'll pay, so you still get the " + ASK + "¢ price, not " + px + "¢. " : "") + "You're in for sure, at the posted price and the full fee.";
+    } else {
+      v.style.setProperty("--hue", "var(--good)");
+      v.innerHTML = "<b>Waits on the book: you're the maker</b>" + (px === BID
+        ? "You join the line at the best bid. You fill once the " + BID + "¢ buyers ahead of you are used up."
+        : "It fills only if sellers come all the way down to " + px + "¢: a big seller in a hurry, or the Bengals' chance dropping to about " + px + "%. Until then, nothing happens and it costs nothing.");
+    }
+    var tk = taker(c, ASK / 100), tkCost = c * ASK / 100 + tk;
+    out.push(["Price per contract", p + "¢"]);
+    out.push([crosses ? "Taker fee" : (prop ? "Maker fee (none on this market)" : "Maker fee"), money(f)]);
+    out.push(["Total cost" + (crosses ? "" : " if it fills"), money(cost)]);
+    out.push(["Bengals win", '<span class="pos">' + signed(win) + "</span>"]);
+    out.push(["Bengals lose", '<span class="neg">' + signed(lose) + "</span>"]);
+    out.push(["Average, at the crowd's 61%", '<span class="' + cls(ev) + '">' + signed(ev) + "</span>"]);
+    if (!crosses) out.push(["Better than tapping the ask by", '<span class="pos">' + signed(tkCost - cost) + "</span>"]);
+    $("sbx").innerHTML = out.map(function(r){ return "<dt>" + r[0] + "</dt><dd>" + r[1] + "</dd>"; }).join("");
+  }
+  function lvl(kind, px, n, who){
+    var w = Math.min(100, Math.round(n / 2400 * 100));
+    return '<div class="lvl ' + kind + '"><span class="px">' + px + '¢</span><span class="bar" style="width:' + Math.max(w, 6) + '%"></span><span class="who">' + n.toLocaleString() + "</span></div>" +
+      (kind === "me" ? '<div class="lvl me"><span></span><span class="who" style="grid-column:2/4">↑ ' + who + "</span></div>" : "");
+  }
+  renderSandbox();
+
+  // ---------- 3. scenarios ----------
+  var C = 100;
+  var SC = [
+    { key:"quiet", tab:"Quiet day", name:"A quiet weekend", tone:["good","Good fill"], lines:[["bid",58,"your YES bid 58¢"]],
+      steps:[
+        ["Fri 9:00 AM",61,"You post: buy 100 YES at 58¢, resting only, expires before kickoff. The best bid is 61¢, so you're 3¢ back in line. Nothing happens."],
+        ["Sat 1:00 PM",58,"A big seller dumps 3,000 contracts at once. It eats through the 61, 60 and 59¢ bids and reaches yours.",["YES",58]],
+        ["Sat 1:05 PM",61,"There was no news behind it, so buyers step back in and the price bounces to 61¢."],
+        ["Sun 8:00 AM",61,"Kickoff soon. You own 100 YES at 58¢ that the crowd values at 61¢."]],
+      lesson:"A fill caused by someone in a hurry, not by news, is the fill you want: a 3¢ discount and a quarter of the fee." },
+    { key:"down", tab:"Chance goes down", name:"Bad news for the Bengals", tone:["bad","Bad fill"], lines:[["bid",58,"your YES bid 58¢"]],
+      steps:[
+        ["Fri 9:00 AM",61,"Same order: buy 100 YES at 58¢."],
+        ["Fri 3:10 PM",61,"Injury report: the Bengals' QB missed practice with an ankle injury. Some traders see it before you do."],
+        ["Fri 3:10:04 PM",48,"Within 4 seconds they sell YES into every bid down to 48¢, yours included. You bought at 58¢ something now worth 48¢.",["YES",58]],
+        ["Sun 8:00 AM",48,"He's ruled out. The price stays at 48¢."]],
+      lesson:"You got filled because the news was bad. That's adverse selection, the maker's main risk. Defenses: small size, and cancel before injury-report times." },
+    { key:"up", tab:"Chance goes up", name:"Good news for the Bengals", tone:["meh","Never filled"], lines:[["bid",58,"your YES bid 58¢"]],
+      steps:[
+        ["Fri 9:00 AM",61,"Same order: buy 100 YES at 58¢."],
+        ["Fri 3:10 PM",61,"Injury report: the Falcons' QB missed practice with an ankle injury."],
+        ["Fri 3:10:04 PM",72,"The price jumps to 72¢. Nobody will sell to you at 58¢ now."],
+        ["Sun 8:30 AM",72,"Your order expires unfilled. P/L: $0."]],
+      lesson:"You were right about the Bengals and never got in. Makers get filled when they're wrong and miss when they're right, so the discount has to pay for scenario 2." },
+    { key:"kick", tab:"Left up at kickoff", name:"Order left up into the game", tone:["bad","Picked off"], lines:[["bid",58,"your YES bid 58¢"]],
+      steps:[
+        ["Sun 8:00 AM",61,"Same 58¢ bid, but this time there's no expiration."],
+        ["Sun 9:30 AM",61,"Kickoff. Your bid is still on the book."],
+        ["9:41:20 AM",44,"Bengals fumble, returned for a touchdown. Bots that saw it within 15 seconds sell YES into every bid, including yours.",["YES",58]],
+        ["9:42:05 AM",44,"Kalshi's free feed shows the play 45 seconds after the snap. That's when you find out you were filled."]],
+      lesson:"During a game, someone always sees the play first. Never leave a resting order up into kickoff (see the speed ladder on the Research page)." },
+    { key:"both", tab:"Both sides", name:"The real market maker: both sides", tone:["good","Locked profit"], lines:[["ask",62,"your NO bid 38¢ = sell YES 62¢"],["bid",58,"your YES bid 58¢"]],
+      steps:[
+        ["Fri 9:00 AM",61,"You post two orders: buy 100 YES at 58¢ and buy 100 NO at 38¢. Buying NO at 38¢ is the same as selling YES at 62¢."],
+        ["Sat 1:00 PM",58,"A big seller sweeps the book. Your YES bid fills at 58¢.",["YES",58]],
+        ["Sat 6:00 PM",62,"A Bengals fan buys 100 YES at 62¢. Your NO bid is the other side of that trade: you get 100 NO at 38¢.",["NO",38]],
+        ["Sun 8:00 AM",61,"You own 100 YES and 100 NO. Exactly one of them pays $100, whoever wins."]],
+      lesson:"That's the whole business: buy from people in a hurry, sell to other people in a hurry, keep the gap. The danger lives between the first fill and the second (scenario 2)." }
+  ];
+  function result(s){
+    var cost = 0, yes = 0, no = 0;
+    s.steps.forEach(function(st){ var f = st[3]; if (!f) return; cost += C * f[1] / 100 + maker(C, f[1] / 100); if (f[0] === "YES") yes += C; else no += C; });
+    var end = s.steps[s.steps.length - 1][1] / 100;
+    var win = yes - cost, lose = no - cost, avg = end * win + (1 - end) * lose;
+    var tCost = C * 0.62 + taker(C, 0.62), tAvg = end * C - tCost;
+    return { cost:cost, win:win, lose:lose, avg:avg, end:end, filled: yes + no > 0, tAvg:tAvg };
+  }
+  var sIdx = 0, step = 0;
+  var tabs = $("scTabs");
+  SC.forEach(function(s, i){
+    var b = document.createElement("button"); b.type = "button"; b.textContent = (i + 1) + " · " + s.tab;
+    b.addEventListener("click", function(){ sIdx = i; step = 0; renderSc(); });
+    tabs.appendChild(b);
+  });
+  $("scPrev").addEventListener("click", function(){ if (step > 0) { step--; renderSc(); } });
+  $("scNext").addEventListener("click", function(){
+    var s = SC[sIdx];
+    if (step < s.steps.length - 1) step++; else if (sIdx < SC.length - 1) { sIdx++; step = 0; } else { sIdx = 0; step = 0; }
+    renderSc();
+  });
+  function renderSc(){
+    var s = SC[sIdx], st = s.steps[step], last = step === s.steps.length - 1;
+    tabs.querySelectorAll("button").forEach(function(b, i){ b.setAttribute("aria-pressed", i === sIdx ? "true" : "false"); });
+    var tb = tabs.children[sIdx]; if (tb && tb.scrollIntoView) tabs.scrollLeft = tb.offsetLeft - 14;
+    $("scName").textContent = (sIdx + 1) + ". " + s.name;
+    var tone = $("scTone"); tone.className = "tone " + s.tone[0]; tone.textContent = s.tone[1]; tone.style.visibility = last ? "visible" : "hidden";
+    $("scWhen").textContent = st[0];
+    $("scPct").textContent = "Bengals " + st[1] + "%";
+    $("scText").innerHTML = st[2].replace(/&/g,"&amp;").replace(/</g,"&lt;") + (st[3] ? '<br><span class="filled">FILLED: 100 ' + st[3][0] + " at " + st[3][1] + "¢</span>" : "");
+    $("scDots").innerHTML = s.steps.map(function(_, i){ return '<i class="' + (i <= step ? "on" : "") + '"></i>'; }).join("");
+    $("scPrev").disabled = step === 0;
+    $("scNext").textContent = last ? (sIdx < SC.length - 1 ? "Next story ›" : "Start over") : "Next ›";
+    drawChart(s);
+    var res = $("scResult");
+    res.hidden = !last;
+    if (last) {
+      var r = result(s), rows = [];
+      if (r.filled) {
+        rows.push(["You paid (with maker fees)", money(r.cost), ""]);
+        rows.push(["If the Bengals win", signed(r.win), cls(r.win)]);
+        rows.push(["If the Falcons win", signed(r.lose), cls(r.lose)]);
+      } else rows.push(["Your order", "never filled", "zero"]);
+      rows.push(["Average, at the final " + Math.round(r.end * 100) + "%", signed(r.avg), cls(r.avg)]);
+      if (s.key !== "both" && s.key !== "kick") rows.push(["Had you tapped the 62¢ ask Friday", signed(r.tAvg), cls(r.tAvg)]);
+      $("scTable").innerHTML = rows.map(function(x){ return "<tr><td>" + x[0] + '</td><td class="r"><span class="' + x[2] + '">' + x[1] + "</span></td></tr>"; }).join("");
+      $("scLessonText").textContent = s.lesson;
+      $("scLesson").style.setProperty("--hue", s.tone[0] === "good" ? "var(--good)" : s.tone[0] === "bad" ? "var(--bad)" : "var(--warning)");
+    }
+  }
+  function drawChart(s){
+    var W = 340, H = 150, L = 30, R = 10, T = 12, B = 22, lo = 40, hi = 80;
+    var n = s.steps.length;
+    function x(i){ return L + (W - L - R) * (n === 1 ? 0 : i / (n - 1)); }
+    function y(v){ return T + (H - T - B) * (hi - v) / (hi - lo); }
+    var g = [];
+    [40, 50, 60, 70, 80].forEach(function(v){ g.push('<line class="grid" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '"/><text class="ax" x="' + (L - 4) + '" y="' + (y(v) + 3) + '" text-anchor="end">' + v + '%</text>'); });
+    s.lines.forEach(function(l){
+      g.push('<line class="' + (l[0] === "bid" ? "bidln" : "askln") + '" x1="' + L + '" x2="' + (W - R) + '" y1="' + y(l[1]) + '" y2="' + y(l[1]) + '"/>');
+    });
+    $("scLegend").innerHTML = '<span><i style="background:var(--s1)"></i>Bengals chance</span>' +
+      s.lines.map(function(l){ return '<span><i class="dash" style="border-color:' + (l[0] === "bid" ? "var(--good)" : "var(--bad)") + '"></i>' + l[2] + "</span>"; }).join("") +
+      '<span><i style="background:var(--accent);border-radius:50%"></i>your order filled</span>';
+    var pts = [];
+    for (var i = 0; i <= step; i++) pts.push(x(i).toFixed(1) + "," + y(s.steps[i][1]).toFixed(1));
+    g.push('<polyline class="ln" points="' + pts.join(" ") + '"/>');
+    for (i = 0; i <= step; i++) {
+      var st = s.steps[i];
+      g.push('<circle class="dot" cx="' + x(i) + '" cy="' + y(st[1]) + '" r="3.5"/>');
+      if (st[3]) {
+        var fy = st[3][0] === "YES" ? st[3][1] : 100 - st[3][1];
+        g.push('<circle class="fill" cx="' + x(i) + '" cy="' + y(fy) + '" r="7"/>');
+      }
+    }
+    s.steps.forEach(function(st, i){ g.push('<text class="ax" x="' + x(i) + '" y="' + (H - 6) + '" text-anchor="' + (i === 0 ? "start" : i === n - 1 ? "end" : "middle") + '">' + st[0].replace(/ (AM|PM)$/, "").replace(/^(Fri|Sat|Sun) /, "$1 ") + "</text>"); });
+    $("scChart").innerHTML = g.join("");
+  }
+  renderSc();
+
+  // summary table
+  $("sumRows").innerHTML = SC.map(function(s, i){
+    var r = result(s);
+    var t = (s.key === "both" || s.key === "kick") ? '<span class="zero">n/a</span>' : '<span class="' + cls(r.tAvg) + '">' + signed(r.tAvg) + "</span>";
+    return "<tr><td>" + (i + 1) + ". " + s.tab + '</td><td class="r"><span class="' + cls(r.avg) + '">' + signed(r.avg) + '</span></td><td class="r">' + t + "</td></tr>";
+  }).join("");
+
+  // ---------- 4. quiz ----------
+  var QZ = [
+    ["Bid 61¢, ask 62¢. You enter a YES limit at 65¢, resting-only unticked. What happens?",
+      ["It waits on the book at 65¢", "It fills right away at 62¢", "It fills right away at 65¢"], 1,
+      "A limit is the most you'll pay. It fills now at the best ask, 62¢, and you're the taker (full fee)."],
+    ["Your 58¢ bid sat quietly all day. It fills 4 seconds after a Bengals injury tweet. Good sign or bad?",
+      ["Good: I got my price", "Bad: someone faster knew the price was about to drop"], 1,
+      "Fills that come right after news usually mean you're the stale order. That's adverse selection."],
+    ["YES 62¢ + NO 39¢ = $1.01. Who keeps the extra penny?",
+      ["Kalshi, as a fee", "The makers whose orders get traded", "Nobody, it's rounding"], 1,
+      "The spread is the makers' markup. Kalshi's fees are separate and on top."],
+    ["Which order fits maker mode best?",
+      ["Posted during the 4th quarter", "Pregame, resting-only, expires before kickoff", "Pregame, no expiration"], 1,
+      "Pregame, post-only, and gone before the game starts, when the fastest traders take over."]
+  ];
+  var got = 0, done = 0;
+  QZ.forEach(function(q, qi){
+    var box = document.createElement("div"); box.className = "q";
+    box.innerHTML = '<p class="ask">' + (qi + 1) + ". " + q[0] + '</p><div class="opts"></div><p class="fb" hidden></p>';
+    var opts = box.querySelector(".opts"), fb = box.querySelector(".fb"), answered = false;
+    q[1].forEach(function(o, oi){
+      var b = document.createElement("button"); b.type = "button"; b.textContent = o;
+      b.addEventListener("click", function(){
+        if (answered) return; answered = true; done++;
+        var ok = oi === q[2]; if (ok) got++;
+        b.classList.add(ok ? "right" : "wrong");
+        opts.children[q[2]].classList.add("right");
+        fb.hidden = false; fb.style.setProperty("--hue", ok ? "var(--good)" : "var(--bad)");
+        fb.textContent = (ok ? "Right. " : "Not quite. ") + q[3];
+        $("quizScore").textContent = done === QZ.length ? "Score: " + got + " of " + QZ.length + (got === QZ.length ? ". Ready to explain it at dinner." : ". Re-read the scenarios, then try once more (reload the page).") : "";
+      });
+      opts.appendChild(b);
+    });
+    $("quizBox").appendChild(box);
+  });
+})();
+</script>
+</body></html>
