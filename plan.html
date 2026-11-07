@@ -135,6 +135,8 @@ dialog h3{margin:0 0 4px;font-size:17px}
 dialog form{display:flex;flex-direction:column;gap:12px}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .fields label.wide{grid-column:1 / -1}
+.fields label.chk{flex-direction:row;align-items:center;gap:8px;font-size:13.5px;min-height:36px}
+.fields label.chk input{width:20px;height:20px;flex:none}
 .fields label{display:flex;flex-direction:column;gap:4px;font-size:12.5px;color:var(--ink-2)}
 .fields input,.pinrow input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:17px;background:var(--page);min-width:0;width:100%}
 .oddsrow{display:flex;gap:6px}
@@ -181,7 +183,8 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
 <dialog id="placeDlg"><form method="dialog" id="placeForm">
   <div><h3 id="pdTitle"></h3><p class="sub" id="pdSlip"></p></div>
   <div class="fields">
-    <label class="wide" id="pdCentsRow" hidden>Kalshi price now (¢, before fee) — sets odds and stake to lock<input id="pdCents" inputmode="decimal" autocomplete="off"></label>
+    <label class="wide" id="pdCentsRow" hidden>Kalshi price it filled at (¢, before fee) — sets odds and stake to lock<input id="pdCents" inputmode="decimal" autocomplete="off"></label>
+    <label class="wide chk" id="pdMakerRow" hidden><input type="checkbox" id="pdMaker" checked>Filled as a resting order (maker fee 0.0175, a few props have none). Untick if you bought at the ask.</label>
     <label>Odds (American)<div class="oddsrow"><button type="button" class="btn" id="pdSign" aria-label="Flip sign">±</button><input id="pdOdds" inputmode="numeric" autocomplete="off"></div></label>
     <label>Stake ($)<input id="pdStake" inputmode="decimal" autocomplete="off"></label>
   </div>
@@ -447,9 +450,12 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
 
   // Lock hedges (bet-sim lock mode): an item with locks_ord hedges the pick with that ord completely.
   // Kalshi: buy one $1 contract per $1 the pick pays; odds/min_odds are all-in prices (fee included).
-  const KALSHI_K = 0.07;
-  const kalshiAllIn = (c) => c + KALSHI_K * c * (1 - c);
-  const kalshiRaw = (a) => ((1 + KALSHI_K) - Math.sqrt((1 + KALSHI_K) ** 2 - 4 * KALSHI_K * a)) / (2 * KALSHI_K);
+  // Maker (since 11/6/2026): a resting order posted before the start pays Kalshi's maker fee (0.0175, none on some props);
+  // the saved odds/min_odds stay at the taker price, which is the fallback if the post doesn't fill.
+  const KALSHI_K = 0.07, MAKER_K = 0.0175;
+  const kalshiAllIn = (c, k = KALSHI_K) => c + k * c * (1 - c);
+  const kalshiRaw = (a, k = KALSHI_K) => ((1 + k) - Math.sqrt((1 + k) ** 2 - 4 * k * a)) / (2 * k);
+  const postCents = (rawC) => Math.ceil(rawC * 100 - 1e-6) - 1;   // 1c under the ask (whole cents)
   const oddsOfDec = (d) => d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
   const isKalshi = (i) => /kalshi/i.test(i.book || "");
   function lockPick(cp, i) {
@@ -689,8 +695,13 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
       const pickTxt = hn.pk.item.label.includes(": ") ? hn.pk.item.label.split(": ").slice(1).join(": ") : hn.pk.item.label;
       const floor = num(i.min_odds), maxC = floor != null && isKalshi(i) ? kalshiRaw(1 / decOf(floor)) * 100 : null;
       const how = isKalshi(i) ? `buy ${Math.round(hn.pk.pay)} contracts${maxC != null ? ` at ≤ ${maxC.toFixed(0)}¢` : ""}` : `${money(hn.stake, false)} at ${amer(hn.odds)}${floor != null ? ` (≥ ${amer(floor)})` : ""}`;
+      // Not logged yet and before the start: post a resting order 1c under the planned ask first; the buy above is the fallback.
+      // Only for slips written "Post N … at Y¢ …" (bet-log since 11/6/2026); live hedges keep a plain "Buy" slip.
+      const slipPost = /^\s*post\b/i.test(i.slip || "") ? (i.slip.match(/at (\d+(?:\.\d+)?)\s*¢/i) || [])[1] : undefined;
+      const pc = isKalshi(i) && s === "open" && hn.pk.pay != null && slipPost !== undefined ? (slipPost ? Number(slipPost) : postCents(kalshiRaw(1 / decOf(hn.odds)))) : null;
+      const post = pc != null && pc >= 1 ? `post ${Math.round(hn.pk.pay)} at ${pc}¢, resting only, expires before the start → locks ${money(hn.pk.pay - hn.pk.cash - hn.pk.pay * kalshiAllIn(pc / 100, MAKER_K))} · not filled: ` : "";
       const txt = hn.pk.state === "skipped" ? `Its pick (${pickTxt}) was skipped: use the hedge under that pick's alternate instead.`
-        : `Locks ${pickTxt}${hn.pk.state === "placed" ? " (logged)" : ""}: ${how} → ${hn.r ? lockText(hn.r) : "—"}`;
+        : `Locks ${pickTxt}${hn.pk.state === "placed" ? " (logged)" : ""}: ${post}${how} → ${hn.r ? lockText(hn.r) : "—"}`;
       lockLine = h("span", { class: "islip" }, txt);
     }
 
@@ -817,9 +828,18 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     $("#pdStake").value = s == null ? "" : String(s);
     // A lock hedge is sized from what its pick really pays; on Kalshi, type the price you see and the rest follows.
     const pk = lockPick(currentPlan(), i);
-    $("#pdCentsRow").hidden = !(pk && isKalshi(i));
-    $("#pdCents").value = pk && isKalshi(i) && o != null ? (kalshiRaw(1 / decOf(o)) * 100).toFixed(1) : "";
+    const kx = !!(pk && isKalshi(i));
+    $("#pdCentsRow").hidden = $("#pdMakerRow").hidden = !kx;
+    // "Post …" slips (before the start): assume the resting order filled at the slip's price; untick for a taker fill.
+    const postSlip = kx && itemState(i) === "open" && /^\s*post\b/i.test(i.slip || "");
+    $("#pdMaker").checked = postSlip;
+    $("#pdCents").value = kx && o != null ? (kalshiRaw(1 / decOf(o)) * 100).toFixed(1) : "";
     if (pk && pk.pay != null && o != null) $("#pdStake").value = (pk.pay / decOf(o)).toFixed(2);
+    if (postSlip && o != null) {
+      const y = (i.slip.match(/at (\d+(?:\.\d+)?)\s*¢/i) || [])[1];
+      $("#pdCents").value = y || String(postCents(kalshiRaw(1 / decOf(o))));
+      lockResize(true);
+    }
     updatePreview();
     $("#placeDlg").showModal();
   }
@@ -830,15 +850,17 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     if (fromCents) {
       const c = Number($("#pdCents").value.replace(/[^\d.]/g, "")) / 100;
       if (!(c > 0 && c < 1)) return;
-      o = oddsOfDec(1 / kalshiAllIn(c));
+      o = oddsOfDec(1 / kalshiAllIn(c, feeK()));
       $("#pdOdds").value = amer(o);
-      $("#pdStake").value = (pk.pay * kalshiAllIn(c)).toFixed(2);
+      $("#pdStake").value = (pk.pay * kalshiAllIn(c, feeK())).toFixed(2);
     } else if ((o = readOdds()) != null) {
       $("#pdStake").value = (pk.pay / decOf(o)).toFixed(2);
-      if (isKalshi(i)) $("#pdCents").value = (kalshiRaw(1 / decOf(o)) * 100).toFixed(1);
+      if (isKalshi(i)) $("#pdCents").value = (kalshiRaw(1 / decOf(o), feeK()) * 100).toFixed(1);
     }
   }
+  const feeK = () => $("#pdMaker").checked ? MAKER_K : KALSHI_K;
   $("#pdCents").addEventListener("input", () => { lockResize(true); updatePreview(); });
+  $("#pdMaker").addEventListener("change", () => { lockResize(true); updatePreview(); });
   function readOdds() { const v = $("#pdOdds").value.replace(/[^\d+-]/g, ""); const n = Number(v); return v && Number.isFinite(n) && Math.abs(n) >= 100 ? Math.round(n) : null; }
   function readStake() { const n = Number($("#pdStake").value.replace(/[$,\s]/g, "")); return Number.isFinite(n) && n > 0 ? n : null; }
   function updatePreview() {
@@ -846,7 +868,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     const o = readOdds(), s = readStake(), q = s ? quote(i, o, s) : null;
     const pk = lockPick(currentPlan(), i), lr = pk && s ? lockResult(pk, o, s) : null;
     $("#pdPreview").textContent = lr
-      ? `${isKalshi(i) ? `Buy ${Math.round(pk.pay)} contracts · ` : ""}to pay ${money(s * decOf(o), false)} · with the pick: ${lockText(lr)}`
+      ? `${isKalshi(i) ? `${Math.round(pk.pay)} contracts, ${$("#pdMaker").checked ? "maker" : "taker"} fee · ` : ""}to pay ${money(s * decOf(o), false)} · with the pick: ${lockText(lr)}`
       : q ? `To pay ${money(q.pay, false)}${q.ev != null ? ` · EV ${money(q.ev)}` : ""}${num(i.odds) == null && o != null && o !== oddsOf(i) ? " · payout not recalculated (older plan)" : ""}` : "Enter the stake.";
     const floor = num(i.min_odds), w = $("#pdWarn"), problem = promoProblem(i, o ?? oddsOf(i));
     w.hidden = !(problem || (floor != null && o != null && decOf(o) < decOf(floor) - 1e-9) || (lr && Math.min(lr.ifPick, lr.ifHedge) < 0));
