@@ -175,7 +175,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
       <div class="stat hue-2"><b>~$180</b><span>a week we can reach today (ceiling, $100 cap)</span></div>
       <div class="stat hue-1"><b>+$160</b><span>if the scanner called the final whistle at 45 s, not 85 s. Free.</span></div>
       <div class="stat hue-0"><b>−$174</b><span>a week from copying fast traders (best simple rule)</span></div>
-      <div class="stat hue-1"><b>+$36</b><span>copying only when we already see a nearly decided game (43 cases)</span></div>
+      <div class="stat hue-1"><b>+$36</b><span>copying only when we already see a nearly decided game (43 cases, not yet reproduced)</span></div>
     </div>
 
     <h3 class="hbars-title">$/week our rules could call, by speed</h3>
@@ -205,7 +205,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
         <li><span class="sp no">44% wrong</span><p><b>Copy every fast sweep</b>−$15,328/wk. Most sweeps are normal in-game repricing, not a decided market.</p></li>
         <li><span class="sp no">38% wrong</span><p><b>Only 20¢+ sweeps</b>−$3,741/wk</p></li>
         <li><span class="sp no">13% wrong</span><p><b>Side already ≤ 25¢, late game</b>−$174/wk. Needs ~3% wrong or less to profit at these prices.</p></li>
-        <li><span class="sp ok">2% wrong</span><p><b>…and our 45 s-old view says nearly decided</b>+$36/wk, 1 wrong of 43. Too few cases to trust yet.</p></li>
+        <li><span class="sp ok">2% wrong</span><p><b>…and our 45 s-old view says nearly decided</b>+$36/wk, 1 wrong of 43. Too few cases to trust yet, and from a scratch run the committed script doesn't reproduce yet.</p></li>
       </ul>
       <p class="sub">Script: Analysis/stale/copy_rule.py · out/copy_rule.txt · speeds: delay_curve.py</p>
     </div></details>
@@ -378,7 +378,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     ["Best streaming app (Tubi)", 25.5, 26.5, "slow", "~26", "M", "Super Bowl LIX, Feb 2025. Only when it carries the game."],
     ["Cheap data services", 25, 45, "slow", "25–45", "V", "SportsDataIO says 20–30 s after the broadcast. BALLDONTLIE $39.99/mo, Goalserve $300/mo. Built from TV, so never faster than TV."],
     ["Cable TV", 32, 50, "slow", "32–50", "M", "Super Bowl measurements."],
-    ["Kalshi free feed (us today)", 38, 47, "us", "38–47", "M", "Measured by our scanner (median 47 s on 11/5). Kalshi's docs warn it can serve a cached board."],
+    ["Kalshi free feed (us today)", 38, 47, "us", "38–47", "M", "Measured by our scanner (median 42 s over 9 scores on 11/5). Kalshi's docs warn it can serve a cached board."],
     ["Streaming TV bundles", 48, 78, "slow", "48–78", "M", "YouTube TV, Hulu, Peacock, NFL+, DirecTV Stream, Fubo. YouTube TV's \"Decreased\" delay setting saves ~10–15 s (user reports)."]
   ];
   var box = document.getElementById("ladderRows");
