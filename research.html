@@ -86,6 +86,10 @@ a{color:var(--s1)}
 .hbar .t{grid-column:1/-1;height:14px;background:var(--chip);border-radius:4px;overflow:hidden}
 .hbar .f{display:block;height:100%;border-radius:4px;min-width:3px;background:var(--hue,var(--s1))}
 .hbar .v{font-weight:700;font-variant-numeric:tabular-nums}
+.hbars-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);margin:6px 0 0}
+.ok-t{color:var(--good);font-weight:700} .gray-t{color:var(--warn);font-weight:700} .no-t{color:var(--bad);font-weight:700}
+#us .status li{grid-template-columns:96px 1fr}
+.wrap-t td,.wrap-t th{white-space:normal} .wrap-t td:last-child{white-space:nowrap}
 
 /* route / stack cards */
 .routes{display:grid;grid-template-columns:1fr;gap:8px}
@@ -144,11 +148,11 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
   <header>
     <p class="eyebrow">Sports Bets · <a href="index.html">History</a> · <a href="live.html">Live</a> · <a href="plan.html">Plan</a> · Research</p>
     <h1>Who's fast on Kalshi NFL, and how</h1>
-    <p class="sub" style="margin-top:4px">Research done Nov 6, 2026 · raw findings only (what it means for us comes next)</p>
+    <p class="sub" style="margin-top:4px">Research + backtest, Nov 6, 2026 · first card = what it means for us</p>
   </header>
 
   <nav class="jump" aria-label="On this page">
-    <a href="#ladder">Speed ladder</a><a href="#routes">4 ways in</a><a href="#network">Hardware</a><a href="#stacks">Stacks + cost</a><a href="#who">Who</a><a href="#rules">Rules</a><a href="#watch">Watch for</a><a href="#sources">Sources</a>
+    <a href="#us">For us</a><a href="#ladder">Speed ladder</a><a href="#routes">4 ways in</a><a href="#network">Hardware</a><a href="#stacks">Stacks + cost</a><a href="#who">Who</a><a href="#rules">Rules</a><a href="#watch">Watch for</a><a href="#sources">Sources</a>
   </nav>
 
   <section class="card">
@@ -160,6 +164,46 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
       <div class="stat hue-0"><b>$0–65</b><span>a month for the gear an individual needs</span></div>
     </div>
     <div class="legend"><span><span class="ev">M</span> measured</span><span><span class="ev">V</span> vendor's own claim</span><span><span class="ev">E</span> estimate or anecdote</span></div>
+  </section>
+
+  <section class="card" id="us">
+    <p class="eyebrow">What it means for us · backtested Nov 6</p>
+    <h2>No speed upgrade pays. Our own final-whistle fix does.</h2>
+    <div class="stats">
+      <div class="stat hue-2"><b>~$180</b><span>a week we can reach today (ceiling, $100 cap)</span></div>
+      <div class="stat hue-1"><b>+$160</b><span>if the scanner called the final whistle at 45 s, not 85 s. Free.</span></div>
+      <div class="stat hue-0"><b>−$174</b><span>a week from copying fast traders (best simple rule)</span></div>
+      <div class="stat hue-1"><b>+$36</b><span>copying only when we already see a nearly decided game (43 cases)</span></div>
+    </div>
+
+    <h3 class="hbars-title">$/week our rules could call, by speed</h3>
+    <div class="hbars">
+      <div class="hbar"><span>3 s · stadium</span><span class="v">$2,228</span><span class="t"><span class="f" style="width:100%"></span></span></div>
+      <div class="hbar"><span>6 s · BetVision</span><span class="v">$2,028</span><span class="t"><span class="f" style="width:91%"></span></span></div>
+      <div class="hbar"><span>10 s</span><span class="v">$1,660</span><span class="t"><span class="f" style="width:74.5%"></span></span></div>
+      <div class="hbar"><span>19 s · antenna, best case</span><span class="v">$1,135</span><span class="t"><span class="f" style="width:51%"></span></span></div>
+      <div class="hbar"><span>22 s · antenna, realistic</span><span class="v">$811</span><span class="t"><span class="f" style="width:36.4%"></span></span></div>
+      <div class="hbar"><span>30 s</span><span class="v">$550</span><span class="t"><span class="f" style="width:24.7%"></span></span></div>
+      <div class="hbar"><span>45 s · Kalshi feed</span><span class="v">$341</span><span class="t"><span class="f" style="width:15.3%;--hue:var(--s2)"></span></span></div>
+      <div class="hbar"><span>Today (final whistle at 85 s)</span><span class="v">$180</span><span class="t"><span class="f" style="width:8.1%;--hue:var(--s2)"></span></span></div>
+    </div>
+    <p class="sub">All ~15 games a week, $100 cap per order, before competitors and mistakes. At the $25 starting cap, roughly ¼–⅓ of these.</p>
+    <div class="callout" style="--hue:var(--s1)"><span class="callout-title">Where the speed money is</span>
+      <p>Game lines (spread, total, winner): <b>$1,385/wk at 3 s, $34 at 45 s.</b> Player props barely change with speed; most of their value comes at the final whistle.</p></div>
+
+    <h3 class="hbars-title">Each route, for us</h3>
+    <div class="tbl wrap-t"><table><thead><tr><th>Route</th><th>Adds (ceiling)</th><th>Verdict</th></tr></thead><tbody><tr><td><b>Final whistle at 45 s</b><br><span class="sub">all games</span></td><td>+$70–160/wk</td><td class="ok-t">✓ Do it</td></tr><tr><td><b>Copy when nearly decided</b><br><span class="sub">all games</span></td><td>+$36/wk</td><td class="gray-t">◐ Watch</td></tr><tr><td><b>Antenna + score-bug reader</b><br><span class="sub">~4–5 games</span></td><td>+$55–190/wk</td><td class="gray-t">◐ Later</td></tr><tr><td><b>Copy every fast trade</b><br><span class="sub">all games</span></td><td>−$174/wk or worse</td><td class="no-t">✕ Loses</td></tr><tr><td><b>BetVision + thumb</b><br><span class="sub">games you watch</span></td><td>~$134/game</td><td class="no-t">✕ Hands</td></tr><tr><td><b>Stadium</b><br><span class="sub">1 game</span></td><td>~$147/game</td><td class="no-t">✕ No</td></tr><tr><td><b>Odds feed $3–5k/mo</b><br><span class="sub">all games</span></td><td>less than its cost</td><td class="no-t">✕ No</td></tr><tr><td><b>Server in Ohio</b><br><span class="sub">all games</span></td><td>$0 (saves 0.06 s)</td><td class="no-t">✕ Not yet</td></tr></tbody></table></div>
+
+    <details class="more"><summary>Copy-the-fast-trader backtest (121 games)</summary><div class="body">
+      <p>Rule: when one side's price gets walked down 10¢+ in 3 seconds, take that side's remaining orders at 4¢+ for 60 s. Graded on how each market actually settled.</p>
+      <ul class="status">
+        <li><span class="sp no">44% wrong</span><p><b>Copy every fast sweep</b>−$15,328/wk. Most sweeps are normal in-game repricing, not a decided market.</p></li>
+        <li><span class="sp no">38% wrong</span><p><b>Only 20¢+ sweeps</b>−$3,741/wk</p></li>
+        <li><span class="sp no">13% wrong</span><p><b>Side already ≤ 25¢, late game</b>−$174/wk. Needs ~3% wrong or less to profit at these prices.</p></li>
+        <li><span class="sp ok">2% wrong</span><p><b>…and our 45 s-old view says nearly decided</b>+$36/wk, 1 wrong of 43. Too few cases to trust yet.</p></li>
+      </ul>
+      <p class="sub">Script: Analysis/stale/copy_rule.py · out/copy_rule.txt · speeds: delay_curve.py</p>
+    </div></details>
   </section>
 
   <section class="card" id="ladder">
