@@ -66,21 +66,21 @@
     const build = () => {
       const el = document.createElement("div");
       el.id = "nlAuth";
-      el.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(8,10,14,.94);padding:16px;font:16px/1.4 -apple-system,system-ui,sans-serif";
+      el.style.cssText = "position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(8,10,14,.94);padding:16px;font:16px/1.4 var(--font,-apple-system,system-ui,sans-serif)";
       el.innerHTML =
-        '<form style="background:#fff;color:#111;max-width:340px;width:100%;border-radius:14px;padding:22px;box-shadow:0 8px 40px rgba(0,0,0,.5)">' +
+        '<form style="background:var(--surface,#fff);color:var(--text,#111);border:1px solid var(--border,transparent);max-width:340px;width:100%;border-radius:14px;padding:22px;box-shadow:0 8px 40px rgba(0,0,0,.5)">' +
         '<h2 style="margin:0 0 4px;font-size:20px">Sign in</h2>' +
-        '<p data-msg style="margin:0 0 14px;color:#555;font-size:14px"></p>' +
-        '<input data-email type="email" name="email" autocomplete="email" placeholder="Email" required style="box-sizing:border-box;width:100%;padding:12px;font-size:16px;border:1px solid #bbb;border-radius:8px;margin-bottom:10px">' +
-        '<input data-code type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" hidden style="box-sizing:border-box;width:100%;padding:12px;font-size:22px;letter-spacing:6px;text-align:center;border:1px solid #bbb;border-radius:8px;margin-bottom:10px">' +
-        '<button data-go type="submit" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:0;border-radius:8px;background:#111;color:#fff">Send code</button>' +
-        '<p style="margin:12px 0 0;text-align:center"><a data-back href="#" hidden style="color:#555;font-size:14px">Use a different email or resend</a></p>' +
+        '<p data-msg style="margin:0 0 14px;color:var(--text-muted,#555);font-size:14px"></p>' +
+        '<input data-email type="email" name="email" autocomplete="email" placeholder="Email" required style="box-sizing:border-box;width:100%;padding:12px;font-size:16px;background:var(--page,#fff);color:var(--text,#111);border:1px solid var(--border-strong,#bbb);border-radius:8px;margin-bottom:10px">' +
+        '<input data-code type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="6-digit code" hidden style="box-sizing:border-box;width:100%;padding:12px;font-size:22px;letter-spacing:6px;text-align:center;background:var(--page,#fff);color:var(--text,#111);border:1px solid var(--border-strong,#bbb);border-radius:8px;margin-bottom:10px">' +
+        '<button data-go type="submit" style="width:100%;padding:12px;font-size:16px;font-weight:600;border:0;border-radius:8px;background:var(--accent,#111);color:var(--on-accent,#fff)">Send code</button>' +
+        '<p style="margin:12px 0 0;text-align:center"><a data-back href="#" hidden style="color:var(--link,#555);font-size:14px">Use a different email or resend</a></p>' +
         '</form>';
       document.body.appendChild(el);
       const $ = (q) => el.querySelector(q);
       const form = $("form"), msg = $("[data-msg]"), email = $("[data-email]"), code = $("[data-code]"), go = $("[data-go]"), back = $("[data-back]");
       let step = "email";
-      const say = (t, bad) => { msg.textContent = t; msg.style.color = bad ? "#b00020" : "#555"; };
+      const say = (t, bad) => { msg.textContent = t; msg.style.color = bad ? "var(--bad,#b00020)" : "var(--text-muted,#555)"; };
       const setStep = (s) => {
         step = s;
         email.hidden = s !== "email"; code.hidden = s !== "code"; back.hidden = s !== "code";
