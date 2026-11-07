@@ -1,0 +1,360 @@
+<!doctype html><html lang="en" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bet Research</title>
+<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
+<link rel="preload" href="https://nandalogic.com/assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="https://nandalogic.com/assets/nandalogic-core.css?v=1">
+<link rel="icon" href="favicon.svg?v=2" type="image/svg+xml">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png?v=2"><link rel="apple-touch-icon" href="apple-touch-icon.png?v=2">
+<style>
+/* Research page: static write-ups (no database reads, no auth.js). Phone-first, one column.
+   First topic (11/6/2026): "Who's fast on Kalshi NFL", from reports/Kalshi NFL speed stack.md.
+   Layout ideas borrowed from learn.nandalogic.com (tldr line, stat tiles, callouts, hbars, tap-to-open boxes).
+   Colors are design-system aliases, same as the other bets pages; no hex colors. */
+:root{
+  --ink:var(--text); --ink-2:var(--text-2); --muted:var(--text-muted); --line:var(--border); --chip:var(--raised);
+  --s1:var(--chart-1); --s2:var(--chart-2); --s0:var(--chart-other); --warn:var(--warning); --sans:var(--font);
+}
+.site-header{position:relative;margin:-12px -16px 12px}
+.site-header .bar{gap:4px}
+a.brand-sub{display:inline-flex;align-items:center;min-height:var(--tap);text-decoration:none}
+a.brand-sub:hover{color:var(--on-navy)}
+.site-header .site-nav{margin-left:auto}
+@media (max-width:600px){.site-header .wordmark{display:none}}
+@media (max-width:440px){.site-header .site-nav a{padding:0 7px}.site-header .brand-sub::before{margin:0 4px 0 2px}}
+*{box-sizing:border-box}
+html{scroll-padding-top:12px}
+body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);font-size:16px;line-height:1.5;
+  padding:max(12px,env(safe-area-inset-top)) 16px max(40px,env(safe-area-inset-bottom))}
+.wrap{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+.num{font-variant-numeric:tabular-nums}
+.eyebrow{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0}
+.eyebrow a{color:var(--s1);text-decoration:none}
+h1{font-size:24px;margin:2px 0 0;letter-spacing:-.01em;line-height:1.2}
+h2{font-size:18px;margin:0;line-height:1.25}
+p{margin:0}
+a{color:var(--s1)}
+.sub{font-size:13px;color:var(--muted)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.tldr{font-size:16px;font-weight:600;padding-left:10px;border-left:3px solid var(--s1)}
+
+/* jump chips */
+.jump{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px;padding:0 16px}
+.jump::-webkit-scrollbar{display:none}
+.jump a{flex:none;font-size:13px;font-weight:600;text-decoration:none;color:var(--ink-2);background:var(--chip);border-radius:999px;padding:6px 12px}
+
+/* topic picker (for future research topics) */
+.topic{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pill{display:inline-block;font-size:12px;padding:1px 8px;border-radius:999px;background:var(--chip);color:var(--ink-2);font-weight:600;white-space:nowrap}
+
+/* stat tiles */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--hue,var(--muted));border-radius:10px;padding:8px 10px}
+.stat b{display:block;font-size:22px;line-height:1.15;font-variant-numeric:tabular-nums}
+.stat span{font-size:13px;color:var(--ink-2)}
+.hue-1{--hue:var(--s1)} .hue-2{--hue:var(--s2)} .hue-0{--hue:var(--s0)}
+
+/* evidence tags: M measured, V vendor claim, E estimate */
+.ev{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 4px;border-radius:5px;font-size:11px;font-weight:700;border:1px solid var(--line);color:var(--ink-2);vertical-align:1px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--ink-2)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+
+/* speed ladder chart */
+.ladder{display:flex;flex-direction:column;gap:2px}
+.axis,.lrow .track{position:relative}
+.lrow{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:6px 6px;border-radius:8px;cursor:pointer;align-items:baseline;border:0;background:none;text-align:left;width:100%;font:inherit;color:inherit}
+.lrow:hover,.lrow[aria-expanded="true"]{background:var(--chip)}
+.lrow .name{font-size:14px;font-weight:600;min-width:0}
+.lrow .val{font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.lrow .track{grid-column:1/-1;height:14px;border-radius:4px;background:var(--chip);overflow:hidden}
+.lrow .zone,.axis .zone{position:absolute;left:0;top:0;bottom:0;width:18.75%;background:color-mix(in srgb,var(--good) 18%,transparent)}
+.lrow .bar{position:absolute;top:2px;bottom:2px;border-radius:4px;min-width:6px}
+.lrow .bar.fast{background:var(--s1)}
+.lrow .bar.slow{background:var(--s0)}
+.lrow .bar.us{background:var(--s2)}
+.lrow .bar.unk{background:repeating-linear-gradient(135deg,var(--s1) 0 4px,transparent 4px 8px);border:1.5px dashed var(--s1)}
+.lrow .note{grid-column:1/-1;font-size:13.5px;color:var(--ink-2);display:none;padding-top:4px}
+.lrow[aria-expanded="true"] .note{display:block}
+.axis{height:18px;margin:2px 6px 0;font-size:11px;color:var(--muted)}
+.axis span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.axis span:first-child{transform:none}
+.axis span:last-child{transform:translateX(-100%)}
+.zone-lbl{font-size:12.5px;color:var(--good);font-weight:700}
+
+/* ms vs window bars */
+.hbars{display:grid;gap:10px}
+.hbar{display:grid;grid-template-columns:1fr auto;gap:2px 8px;font-size:14px;align-items:baseline}
+.hbar .t{grid-column:1/-1;height:14px;background:var(--chip);border-radius:4px;overflow:hidden}
+.hbar .f{display:block;height:100%;border-radius:4px;min-width:3px;background:var(--hue,var(--s1))}
+.hbar .v{font-weight:700;font-variant-numeric:tabular-nums}
+
+/* route / stack cards */
+.routes{display:grid;grid-template-columns:1fr;gap:8px}
+@media (min-width:560px){.routes{grid-template-columns:1fr 1fr}}
+.route{border:1px solid var(--line);border-top:3px solid var(--hue,var(--s1));border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+.route h3{font-size:15px;margin:0}
+.route .big{font-size:20px;font-weight:800;font-variant-numeric:tabular-nums}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;font-size:13.5px;margin:0}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+
+/* status rows (rules) */
+.status{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:6px}
+.status li{display:grid;grid-template-columns:92px 1fr;gap:10px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.status p{font-size:14px} .status p b{display:block;font-size:14.5px}
+.sp{display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:700;border-radius:999px;padding:2px 8px;border:1.5px solid currentColor;white-space:nowrap;justify-self:start;margin-top:1px}
+.sp.ok{color:var(--good)} .sp.gray{color:var(--warn)} .sp.no{color:var(--bad)}
+@media (max-width:380px){.status li{grid-template-columns:1fr;gap:4px}}
+
+/* callouts + tap-to-open */
+.callout{border:1px solid var(--line);border-left:4px solid var(--hue,var(--muted));border-radius:10px;padding:10px 12px;font-size:14.5px;display:flex;flex-direction:column;gap:6px}
+.callout-title{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+details.more{border:1px solid var(--line);border-radius:10px}
+details.more>summary{cursor:pointer;min-height:var(--tap);display:flex;align-items:center;padding:0 12px;font-size:14px;font-weight:600;color:var(--ink-2);list-style:none}
+details.more>summary::-webkit-details-marker{display:none}
+details.more>summary::before{content:"▸";margin-right:8px;transition:transform .2s}
+details.more[open]>summary::before{transform:rotate(90deg)}
+details.more>.body{padding:0 12px 12px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+ul.tight{margin:0;padding-left:18px;font-size:14px} ul.tight li{margin:3px 0}
+.tbl{overflow-x:auto;border:1px solid var(--line);border-radius:10px}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child>*{border-bottom:0}
+thead th{background:var(--chip);font-size:12px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chips span{font-size:13px;font-weight:600;background:var(--chip);border-radius:8px;padding:4px 9px}
+.chips span small{font-weight:500;color:var(--muted)}
+.foot{font-size:12.5px;color:var(--muted);text-align:center;padding:8px 0}
+.src{font-size:13px;margin:0;padding-left:18px} .src li{margin:4px 0;overflow-wrap:anywhere}
+</style></head><body>
+<header class="site-header">
+  <div class="bar">
+    <a class="brand" href="https://nandalogic.com" aria-label="NANDalogic home"><svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.79 5.21L16.46 17.88L17.88 16.46L5.21 3.79Z"/><path d="M18.5 4.5h2v11.7h-2zM4.5 18.5h11.7v2H4.5z"/><rect x="0" y="0" width="9" height="9" rx="2.2"/><rect x="15" y="0" width="9" height="9" rx="2.2"/><rect x="0" y="15" width="9" height="9" rx="2.2"/><path fill-rule="evenodd" d="M19.5 15a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9zM19.5 17.4a2.1 2.1 0 1 1 0 4.2a2.1 2.1 0 1 1 0-4.2z"/></svg><span class="wordmark"><b>NAND</b>alogic</span></a>
+    <a class="brand-sub" href="index.html">bets</a>
+    <nav class="site-nav" aria-label="Bets pages"><a href="index.html">History</a><a href="live.html">Live</a><a href="plan.html">Plan</a><a href="research.html" aria-current="page">Research</a></nav>
+    <button type="button" class="icon-btn" id="themeBtn" aria-label="Switch to light mode"></button>
+  </div>
+</header>
+<script>(function(){var r=document.documentElement,b=document.getElementById("themeBtn");
+var MOON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>';
+var SUN='<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>';
+function cur(){return r.getAttribute("data-theme")==="light"?"light":"dark"}
+function lab(){var d=cur()==="dark";b.setAttribute("aria-label",d?"Switch to light mode":"Switch to dark mode");b.innerHTML=d?SUN:MOON}
+b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setAttribute("data-theme",n);try{localStorage.setItem("theme",n)}catch(e){}lab()});lab()})();</script>
+
+<main class="wrap">
+  <header>
+    <p class="eyebrow">Sports Bets · <a href="index.html">History</a> · <a href="live.html">Live</a> · <a href="plan.html">Plan</a> · Research</p>
+    <h1>Who's fast on Kalshi NFL, and how</h1>
+    <p class="sub" style="margin-top:4px">Research done Nov 6, 2026 · raw findings only (what it means for us comes next)</p>
+  </header>
+
+  <nav class="jump" aria-label="On this page">
+    <a href="#ladder">Speed ladder</a><a href="#routes">4 ways in</a><a href="#network">Hardware</a><a href="#stacks">Stacks + cost</a><a href="#who">Who</a><a href="#rules">Rules</a><a href="#watch">Watch for</a><a href="#sources">Sources</a>
+  </nav>
+
+  <section class="card">
+    <p class="tldr">The fast traders aren't faster computers. They see the play sooner.</p>
+    <div class="stats">
+      <div class="stat hue-1"><b>0–15 s</b><span>when bots take stale orders</span></div>
+      <div class="stat hue-2"><b>38–47 s</b><span>Kalshi's free feed (our scanner)</span></div>
+      <div class="stat hue-1"><b>4</b><span>routes that beat 15 s</span></div>
+      <div class="stat hue-0"><b>$0–65</b><span>a month for the gear an individual needs</span></div>
+    </div>
+    <div class="legend"><span><span class="ev">M</span> measured</span><span><span class="ev">V</span> vendor's own claim</span><span><span class="ev">E</span> estimate or anecdote</span></div>
+  </section>
+
+  <section class="card" id="ladder">
+    <h2>Speed ladder: seconds from the snap until you know</h2>
+    <p class="sub">Tap a row for the details. Green band = the 0–15 s club.</p>
+    <div class="legend">
+      <span><i style="background:var(--s1)"></i>Gets inside 15 s</span>
+      <span><i style="background:var(--s0)"></i>Too slow</span>
+      <span><i style="background:var(--s2)"></i>Us today</span>
+      <span><i style="background:repeating-linear-gradient(135deg,var(--s1) 0 3px,transparent 3px 6px);border:1px dashed var(--s1)"></i>No public number</span>
+    </div>
+    <div class="ladder" id="ladderRows"></div>
+    <div class="axis" id="axis"></div>
+  </section>
+
+  <section class="card" id="routes">
+    <h2>The 4 ways into the club</h2>
+    <div class="routes">
+      <div class="route"><h3>1 · Be in the stadium</h3><span class="big">~1–3.5 s <span class="ev">E</span></span>
+        <dl class="kv"><dt>Cost</dt><dd>Ticket + travel, one game per person</dd><dt>Who</dt><dd>Anyone; scouts paid €62–104/game</dd><dt>Catch</dt><dd>Ticket terms; Kalshi sports blocked in NV, WA, MI</dd></dl></div>
+      <div class="route"><h3>2 · BetVision in a sportsbook app</h3><span class="big">3–7 s <span class="ev">V</span></span>
+        <dl class="kv"><dt>Cost</dt><dd>Free with a funded account</dd><dt>Who</dt><dd>FanDuel, DraftKings, Caesars, Fanatics, Hard Rock</dd><dt>Catch</dt><dd>Using it to trade Kalshi may break the book's terms</dd></dl></div>
+      <div class="route"><h3>3 · Data sent from inside the stadium</h3><span class="big">? s <span class="ev">E</span></span>
+        <dl class="kv"><dt>Cost</dt><dd>Enterprise contract, not published</dd><dt>Who</dt><dd><b>Not individuals.</b> NFL hasn't approved it for prediction markets</dd><dt>Catch</dt><dd>"~3 s" only appears in promo posts</dd></dl></div>
+      <div class="route"><h3>4 · Copy the first fast trade</h3><span class="big">fastest + &lt;1 s <span class="ev">E</span></span>
+        <dl class="kv"><dt>Cost</dt><dd>Free (Kalshi's live WebSocket feed)</dd><dt>Who</dt><dd>Anyone with a Kalshi account</dd><dt>Catch</dt><dd>Always second: you get what's left</dd></dl></div>
+    </div>
+    <div class="callout" style="--hue:var(--s0)"><span class="callout-title">Why TV can't get there</span>
+      <p>Even an antenna is ~19 s behind the field <span class="ev">M</span>. A feed built from TV can never beat TV, so cheap data services ($40–300/mo) land in the same 25–45 s range as Kalshi's free feed.</p></div>
+  </section>
+
+  <section class="card" id="network">
+    <h2>Hardware barely matters here</h2>
+    <p class="tldr">The window is 15,000 ms wide. Our home internet adds 67.</p>
+    <div class="hbars">
+      <div class="hbar"><span>The 0–15 s window</span><span class="v">15,000 ms</span><span class="t"><span class="f" style="width:100%;--hue:var(--good)"></span></span></div>
+      <div class="hbar"><span>Home Mac → Kalshi <span class="ev">M</span></span><span class="v">~67 ms</span><span class="t"><span class="f" style="width:.45%;--hue:var(--s2)"></span></span></div>
+      <div class="hbar"><span>Rented server in Ohio → Kalshi <span class="ev">E</span></span><span class="v">1–5 ms</span><span class="t"><span class="f" style="width:.03%;--hue:var(--s1)"></span></span></div>
+    </div>
+    <ul class="tight">
+      <li>Kalshi's servers are in Amazon's <b>Ohio</b> data center (AWS us-east-2) <span class="ev">M</span>.</li>
+      <li>Free API tier = ~10 orders a second. Plenty.</li>
+      <li>Kalshi's market list (<code>/markets</code>) is cached up to <b>15 s</b>; order books are live <span class="ev">M</span>.</li>
+      <li>Saving 60 ms only matters against someone who saw the play at the same moment.</li>
+    </ul>
+    <details class="more"><summary>The firm-only extras (and Kalshi's 7 API tiers)</summary><div class="body">
+      <div class="tbl"><table><thead><tr><th>Tier</th><th>Orders/s</th><th>How you get it</th></tr></thead><tbody>
+        <tr><td>Basic</td><td>~10</td><td>Sign up</td></tr>
+        <tr><td>Advanced</td><td>~30</td><td>Self-serve</td></tr>
+        <tr><td>Expert</td><td>~60</td><td>0.075% of all volume</td></tr>
+        <tr><td>Premier</td><td>~120</td><td>0.125% (unlocks AWS PrivateLink)</td></tr>
+        <tr><td>Paragon</td><td>~240</td><td>0.25%</td></tr>
+        <tr><td>Prime</td><td>~480</td><td>0.50% (unlocks VPC peering)</td></tr>
+        <tr><td>Prestige</td><td>~960</td><td>1.00%</td></tr>
+      </tbody></table></div>
+      <ul class="tight">
+        <li><b>FIX</b> (the order connection trading firms use): apply to Kalshi's institutional team.</li>
+        <li><b>DoubleZero Edge</b> (dedicated fiber price feed, since Aug 2026): price data only, no orders, price not public.</li>
+        <li>These speed up seeing <i>Kalshi's prices</i>, not the game.</li>
+      </ul></div></details>
+  </section>
+
+  <section class="card" id="stacks">
+    <h2>What each setup costs</h2>
+    <div class="tbl"><table><thead><tr><th>Setup</th><th>Secs</th><th>/month</th><th>You?</th></tr></thead><tbody>
+      <tr><td><b>Stadium</b></td><td>~1–3.5</td><td>Tickets</td><td>Yes</td></tr>
+      <tr><td><b>BetVision + tap</b></td><td>~6–9</td><td>$0–65</td><td>Yes</td></tr>
+      <tr><td><b>Copy the tape</b></td><td>2nd place</td><td>$0–65</td><td>Yes</td></tr>
+      <tr><td><b>Institutional</b></td><td>seconds</td><td>Unknown</td><td>No</td></tr>
+    </tbody></table></div>
+    <details class="more"><summary>What's in each setup</summary><div class="body">
+      <ul class="tight">
+        <li><b>Stadium:</b> ticket, phone with an order ready to send, fast thumb. Paid spotters could cover more games.</li>
+        <li><b>BetVision + tap:</b> video 3–7 s behind, plus your reaction and the order trip ≈ 6–9 s <span class="ev">E</span>. Copy-protection (DRM) blocks screen-reading software, so a person taps.</li>
+        <li><b>Copy the tape:</b> Kalshi's free WebSocket shows the first fast fill. Catches leftovers deeper in the book or on slower prop markets.</li>
+        <li><b>Institutional:</b> stadium data under contract + server in Ohio + FIX + DoubleZero + $3–5k/mo odds feed + market-maker fee breaks.</li>
+        <li><b>Shared costs:</b> server $0–65/mo (AWS c7i.large ≈ $65, a basic one $5–10), code free, Kalshi taker fee up to ~1.75¢ per contract.</li>
+      </ul></div></details>
+  </section>
+
+  <section class="card" id="who">
+    <h2>Who the fast traders are</h2>
+    <div class="chips">
+      <span>Susquehanna (SIG) <small>· largest market maker</small></span>
+      <span>Jump Trading <small>· doubled team 7/2026</small></span>
+      <span>Kalshi Trading <small>· Kalshi's own arm</small></span>
+      <span>FanDuel <small>· $50M MM revenue 2026</small></span>
+      <span>DraftKings</span>
+      <span>DRW <small>· reportedly building</small></span>
+    </div>
+    <p class="sub">No source says which NFL data any of them uses.</p>
+    <div class="stats">
+      <div class="stat hue-2"><b>−1.12%</b><span>takers lose per trade on average; makers win it</span></div>
+      <div class="stat hue-2"><b>$584M</b><span>takers lost on Kalshi, 2021 to May 2026</span></div>
+      <div class="stat hue-1"><b>80–90%</b><span>of DraftKings' prediction volume is pros</span></div>
+      <div class="stat hue-1"><b>3.6 s</b><span>median life of an in-game mispricing (Polymarket NBA study) <span class="ev">M</span></span></div>
+    </div>
+    <div class="callout" style="--hue:var(--s1)"><span class="callout-title">Heard from traders</span>
+      <p>"You can pick off those orderbooks if you are at the game live." A friend reportedly made "a few k every game" at Chicago baseball <span class="ev">E</span>.</p>
+      <p>A hobbyist NFL bot on ESPN's free data failed: pros' feeds are "at least 30 seconds faster" <span class="ev">E</span>.</p></div>
+  </section>
+
+  <section class="card" id="rules">
+    <h2>The rules</h2>
+    <ul class="status">
+      <li><span class="sp ok">✓ Legal</span><p><b>Courtsiding (relaying from the stadium)</b>No US law bans it. Penalty in practice: ejection, lost tickets.</p></li>
+      <li><span class="sp ok">✓ Stands</span><p><b>A picked-off order</b>Kalshi Rule 5.11: trader error generally isn't grounds to cancel the trade.</p></li>
+      <li><span class="sp gray">◐ Unclear</span><p><b>Kalshi's insider rule</b>Defines "insider" broadly. Nothing says seeing a public play faster counts.</p></li>
+      <li><span class="sp gray">◐ Unclear</span><p><b>CFTC (the federal regulator)</b>Its insider theory needs a broken duty of confidentiality. A fan owes none, it appears.</p></li>
+      <li><span class="sp gray">◐ Risky</span><p><b>BetVision to trade Kalshi</b>Licensed for betting on that book; may break its terms (not verified).</p></li>
+      <li><span class="sp no">✕ Blocked</span><p><b>Official NFL data</b>NFL has no prediction-market data deal. Genius Sports' Kalshi deal is soccer only.</p></li>
+      <li><span class="sp no">✕ Blocked</span><p><b>Kalshi sports in NV, WA, MI</b>Court orders. Matters for stadium trading there.</p></li>
+    </ul>
+    <p class="sub">Facts from public sources, not legal advice.</p>
+  </section>
+
+  <section class="card" id="watch">
+    <h2>Two things that would change everything</h2>
+    <div class="callout" style="--hue:var(--warn)"><span class="callout-title">⚠ Kalshi speed bump</span>
+      <p>Since Dec 2025, Kalshi's rules (Rule 13.1) let it delay orders during live games. Not switched on for NFL as of Nov 6.</p>
+      <div class="chips"><span>Crypto.com <small>· 3 s delay for regular customers</small></span><span>Polymarket <small>· 1–3 s + cancels resting orders at kickoff</small></span></div>
+      <p>If Kalshi turns it on for everyone but market makers, the stadium and BetVision routes shrink or close.</p></div>
+    <div class="callout" style="--hue:var(--s1)"><span class="callout-title">NFL data deal</span>
+      <p>The NBA, MLB and NHL have prediction-market deals; the NFL doesn't. If it signs one, Kalshi's own feed could get fast and the stale-order window would shrink.</p></div>
+  </section>
+
+  <details class="more" id="gaps"><summary>What the research couldn't find</summary><div class="body"><ul class="tight">
+    <li>Any independent speed test of a data feed (only TV is measured).</li>
+    <li>Prices for official, Sportradar or OpticOdds feeds.</li>
+    <li>Which data feed any named firm uses.</li>
+    <li>Whether BetVision covers every NFL game.</li>
+    <li>Kalshi's fee schedule PDF (rate-limited); fee formula is from secondary sources.</li>
+  </ul></div></details>
+
+  <details class="more" id="sources"><summary>Key sources</summary><div class="body"><ol class="src">
+    <li><a href="https://www.tvtechnology.com/platform/study-ota-broadcasts-offered-lowest-latency-of-super-bowl-lx-feeds">TV Tech: Super Bowl LX latency study</a> (antenna 19 s, cable 38, streaming 48–62)</li>
+    <li><a href="https://www.sportsvideo.org/2025/02/10/super-bowl-lix-tubi-leads-all-streaming-platforms-in-least-lag-time-according-to-phenix-report/">Sports Video Group: Super Bowl LIX study</a></li>
+    <li><a href="https://frontofficesports.com/article/nfl-fans-bet-games-streaming-betvision/">Front Office Sports: BetVision</a></li>
+    <li><a href="https://sportsdata.io/help/refresh-rates-feeds-and-timing">SportsDataIO: refresh rates</a> (20–30 s after broadcast)</li>
+    <li><a href="https://developer.sportradar.com/football/docs/nfl-ig-push">Sportradar NFL push feeds</a></li>
+    <li><a href="https://www.geniussports.com/newsroom/genius-sports-and-kalshi-strike-major-official-data-media-and-integrity-partnership/">Genius Sports × Kalshi (soccer)</a></li>
+    <li><a href="https://www.nbcsports.com/nfl/profootballtalk/rumor-mill/news/nfl-will-have-three-sportsbook-partners-no-prediction-market-deals-for-2026">PFT: no NFL prediction-market deals for 2026</a></li>
+    <li><a href="https://prospect.org/2026/08/26/house-always-wins-kalshi-prediction-markets/">American Prospect: who makes money on Kalshi</a></li>
+    <li><a href="https://docs.kalshi.com/getting_started/rate_limits">Kalshi API rate limits</a> · <a href="https://docs.kalshi.com/changelog">changelog</a></li>
+    <li><a href="https://www.theblock.co/news/markets/2026-08-12-kalshi-first-prediction-market-to-stream-full-order-books-via-doublezero-411589">The Block: DoubleZero Edge</a></li>
+    <li><a href="https://www.cftc.gov/filings/orgrules/rules11262533628.pdf">Kalshi Rule 13.1 filing (live-event delays)</a></li>
+    <li><a href="https://help.polymarket.com/en/articles/13364444-limit-orders">Polymarket: limit orders and sports delays</a></li>
+    <li><a href="https://www.yogonet.com/international/news/2025/12/11/116729-cryptocom-implements-a-threesecond-delay-for-retail-users-in-its-sports-eventbetting-market">Crypto.com 3 s delay</a></li>
+    <li><a href="https://hackingthemarkets.com/anatomy-of-a-kalshi-nfl-trading-bot/">Hacking the Markets: an NFL bot that failed</a></li>
+    <li><a href="https://arxiv.org/html/2605.00864v1">arXiv: Polymarket NBA in-game mispricing</a></li>
+  </ol><p class="sub">Full report with every source: Sports_Bets/reports/Kalshi NFL speed stack.md</p></div></details>
+
+  <p class="foot">Static page · no bet data · research from Nov 6, 2026</p>
+</main>
+
+<script>
+// Speed ladder rows: [name, min s, max s, kind, value text, evidence, note]. kind: fast | slow | us | unk
+(function(){
+  var MAX = 80;
+  var rows = [
+    ["In the stadium", 1, 3.5, "fast", "~1–3.5", "E", "Your eyes, or a spotter, with an order ready to send. Ticket + travel per game."],
+    ["Data sent from the stadium", 1, 5, "unk", "?", "E", "Official (Genius Sports) or scout-entered data. No public seconds figure; \"~3 s\" appears only in promo posts. Enterprise only; NFL hasn't approved it for prediction markets."],
+    ["BetVision (sportsbook video)", 3, 7, "fast", "3–7", "V", "Genius Sports' low-delay stream inside FanDuel, DraftKings, Caesars, Fanatics, Hard Rock. FanDuel's season average was 5 s. Free with a funded account."],
+    ["Copy the first fast trade", 1, 8, "unk", "1st + <1", "E", "Kalshi's live WebSocket shows the first aggressive fill. Arrives just behind the fastest trader; free."],
+    ["Fast sportsbook odds feed", 3, 15, "fast", "~3–15", "E", "The book repricing after the play (~3–15 s, unmeasured) + under 1 s delivery (OpticOdds' own claim). OddsJam ~$5,000/mo, Unabated ~$3,000/mo."],
+    ["TV antenna (over the air)", 17, 22, "slow", "17–22", "M", "Measured at three Super Bowls (2024–26). Beats Kalshi's free feed by ~20–25 s but misses the window."],
+    ["Best streaming app (Tubi)", 25.5, 26.5, "slow", "~26", "M", "Super Bowl LIX, Feb 2025. Only when it carries the game."],
+    ["Cheap data services", 25, 45, "slow", "25–45", "V", "SportsDataIO says 20–30 s after the broadcast. BALLDONTLIE $39.99/mo, Goalserve $300/mo. Built from TV, so never faster than TV."],
+    ["Cable TV", 32, 50, "slow", "32–50", "M", "Super Bowl measurements."],
+    ["Kalshi free feed (us today)", 38, 47, "us", "38–47", "M", "Measured by our scanner (median 47 s on 11/5). Kalshi's docs warn it can serve a cached board."],
+    ["Streaming TV bundles", 48, 78, "slow", "48–78", "M", "YouTube TV, Hulu, Peacock, NFL+, DirecTV Stream, Fubo. YouTube TV's \"Decreased\" delay setting saves ~10–15 s (user reports)."]
+  ];
+  var box = document.getElementById("ladderRows");
+  rows.forEach(function(r){
+    var b = document.createElement("button");
+    b.type = "button"; b.className = "lrow"; b.setAttribute("aria-expanded","false");
+    var left = r[1]/MAX*100, width = Math.max((r[2]-r[1])/MAX*100, 1);
+    b.innerHTML = '<span class="name"></span><span class="val"></span>' +
+      '<span class="track" aria-hidden="true"><span class="zone"></span><span class="bar ' + r[3] + '" style="left:' + left + '%;width:' + width + '%"></span></span>' +
+      '<span class="note"></span>';
+    b.querySelector(".name").textContent = r[0];
+    b.querySelector(".val").innerHTML = r[4] + ' s <span class="ev">' + r[5] + '</span>';
+    b.querySelector(".note").textContent = r[6];
+    b.setAttribute("aria-label", r[0] + ": " + r[4] + " seconds after the snap");
+    b.addEventListener("click", function(){ b.setAttribute("aria-expanded", b.getAttribute("aria-expanded")==="true" ? "false" : "true"); });
+    box.appendChild(b);
+  });
+  var ax = document.getElementById("axis");
+  [0,15,30,45,60,80].forEach(function(s){
+    var sp = document.createElement("span");
+    sp.style.left = (s/MAX*100) + "%";
+    sp.textContent = s === 15 ? "15 s" : String(s);
+    if (s === 15) { sp.className = "zone-lbl"; }
+    ax.appendChild(sp);
+  });
+})();
+</script>
+</body></html>

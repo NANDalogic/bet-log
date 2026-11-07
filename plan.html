@@ -29,6 +29,7 @@ a.brand-sub{display:inline-flex;align-items:center;min-height:var(--tap);text-de
 a.brand-sub:hover{color:var(--on-navy)}
 .site-header .site-nav{margin-left:auto}
 @media (max-width:600px){.site-header .wordmark{display:none}}
+@media (max-width:440px){.site-header .site-nav a{padding:0 7px}.site-header .brand-sub::before{margin:0 4px 0 2px}}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--page);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.45;
@@ -148,7 +149,7 @@ dialog form{display:flex;flex-direction:column;gap:12px}
   <div class="bar">
     <a class="brand" href="https://nandalogic.com" aria-label="NANDalogic home"><svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true"><path d="M3.79 5.21L16.46 17.88L17.88 16.46L5.21 3.79Z"/><path d="M18.5 4.5h2v11.7h-2zM4.5 18.5h11.7v2H4.5z"/><rect x="0" y="0" width="9" height="9" rx="2.2"/><rect x="15" y="0" width="9" height="9" rx="2.2"/><rect x="0" y="15" width="9" height="9" rx="2.2"/><path fill-rule="evenodd" d="M19.5 15a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9zM19.5 17.4a2.1 2.1 0 1 1 0 4.2a2.1 2.1 0 1 1 0-4.2z"/></svg><span class="wordmark"><b>NAND</b>alogic</span></a>
     <a class="brand-sub" href="index.html">bets</a>
-    <nav class="site-nav" aria-label="Bets pages"><a href="index.html">History</a><a href="live.html">Live</a><a href="plan.html" aria-current="page">Plan</a></nav>
+    <nav class="site-nav" aria-label="Bets pages"><a href="index.html">History</a><a href="live.html">Live</a><a href="plan.html" aria-current="page">Plan</a><a href="research.html">Research</a></nav>
     <button type="button" class="icon-btn" id="themeBtn" aria-label="Switch to light mode"></button>
   </div>
 </header>
@@ -160,7 +161,7 @@ function lab(){var d=cur()==="dark";b.setAttribute("aria-label",d?"Switch to lig
 b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setAttribute("data-theme",n);try{localStorage.setItem("theme",n)}catch(e){}lab()});lab()})();</script>
 <div class="wrap">
   <header>
-    <div><p class="eyebrow">Sports Bets · <a href="index.html">History</a> · <a href="live.html">Live</a> · Plan</p><h1>Bet plan</h1></div>
+    <div><p class="eyebrow">Sports Bets · <a href="index.html">History</a> · <a href="live.html">Live</a> · Plan · <a href="research.html">Research</a></p><h1>Bet plan</h1></div>
     <div class="fresh"><span class="dot" id="dot"></span><span id="freshText">Loading…</span></div>
   </header>
   <div class="weekbar">
