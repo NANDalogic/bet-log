@@ -459,6 +459,22 @@
     return over ? pOver : 1 - pOver;
   }
 
+  // First TD scorer legs are kind "other" (no box-score stat to read), but ESPN's scoring plays name the scorer.
+  // Lower case, no punctuation or Jr./III, so "T.J. Hockenson" and "TJ Hockenson" compare equal.
+  const nameKey = (s) => String(s || "").toLowerCase().replace(/[.'\u2019-]/g, "").replace(/\s+(jr|sr|ii|iii|iv|v)\s*$/, "").replace(/\s+/g, " ").trim();
+  // "Colston Loveland first TD scorer" -> "colston loveland". Needs a full name and that exact wording, so a team's
+  // first TD, a half or quarter market, or a last name alone stays an ordinary "other" leg at its pregame chance.
+  function firstTdPlayer(leg) {
+    if (leg.kind !== "other") return null;
+    const m = /^(\S+(?:\s+\S+)+?)\s+(?:first|1st)\s+(?:td|touchdown)\s+scorer$/i.exec(String(leg.desc || "").trim());
+    return m ? nameKey(m[1]) : null;
+  }
+  // 1 = he scored it, 0 = someone else did, null = can't tell (same last name, different first: "Chig" vs "Chigoziem").
+  function firstTdResult(player, scorer) {
+    if (player === scorer) return 1;
+    return player.split(" ").pop() === scorer.split(" ").pop() ? null : 0;
+  }
+
   // positions: { games: {key: G}, bets: [...], n, seed, bonusValue }
   //   G: {kind:"football"|"hockey"|"basketball"|"baseball"|"binary"|"none", fit, live:{state,home,away,secLeft,period,wp,frac,outsLeft}, homeP, maxLead:{home,away},
 //      stats:{player: {stat: x}}, playerTeam:{player: team abbreviation}, g: ESPN game}
@@ -471,7 +487,7 @@
     if (k === "total") return { key: `${g}:tot:${leg.line}`, type: "tot", g, line: Number(leg.line), want: side === "over" };
     if (k === "team_total") return { key: `${g}:tt:${side}:${leg.line}`, type: "tt", g, side, line: Number(leg.line), want: (leg.ou || "over") === "over" };
     if (k === "prop") return { key: `${g}:prop:${(leg.player || "").toLowerCase()}:${leg.stat}:${leg.line}`, type: "prop", g, leg: { ...leg, ou: "over", p: leg.p == null ? null : (leg.ou || "over") === "over" ? leg.p : 1 - leg.p }, want: (leg.ou || "over") === "over" };
-    return { key: `bet:${betId}:${i}`, type: "flat", g, want: true, label: leg.desc || "other leg" };
+    return { key: `bet:${betId}:${i}`, type: "flat", g, want: true, label: leg.desc || "other leg", firstTd: firstTdPlayer(leg) };
   }
   function legOutcome(g, leg, betId, i) {
     if (leg.kind === "ml" && leg.lead_by) return { key: `${g}:lead:${leg.side}:${leg.lead_by}`, type: "lead", g, side: leg.side, N: Number(leg.lead_by), want: true };
@@ -548,6 +564,7 @@
         const p = propProb(spec.leg, st[spec.leg.stat] ?? 0, f, post, !!(G.g && HOOPS[G.g.league]));
         v = drawArr(p); est = !post;
       }
+      if (spec.firstTd && G.firstTd) { const w = firstTdResult(spec.firstTd, G.firstTd); if (w != null) v = new Int8Array(n).fill(w); }
       if (!v) { v = drawArr(pYes ?? 0.5); est = true; }
       let yes = 0, push = 0; for (let i = 0; i < n; i++) { if (v[i] === 1) yes++; else if (v[i] === 2) push++; }
       const o = { spec, v, p: yes / n, push: push / n, est };
@@ -691,7 +708,7 @@
   }
 
   root.LiveModel = { ncdf, ninv, fitFootball, simFootball, fitHockey, simHockey, hockeyProbs, fitBasketball, simBasketball, fitBaseball, simBaseball, baseballProbs,
-    propProb, run, summarize, extremes, cheer, rng, legOutcome };
+    propProb, run, summarize, extremes, cheer, rng, legOutcome, firstTdPlayer, nameKey };
 })(typeof window !== "undefined" ? window : globalThis);
 
 // ===================== bets + ESPN -> model inputs =====================
@@ -761,6 +778,11 @@
     }
     const maxLead = { home: 0, away: 0 };
     for (const p of d.scoringPlays || []) { maxLead.home = Math.max(maxLead.home, p.homeScore - p.awayScore); maxLead.away = Math.max(maxLead.away, p.awayScore - p.homeScore); }
+    // Who scored the game's first touchdown (ESPN lists scoring plays in order). The scorer is the name before the yardage:
+    // "Rome Odunze 9 Yd pass from Caleb Williams (…)". A form we can't read, or an initial-only name, leaves it null = not decided.
+    const td = (d.scoringPlays || []).find((p) => (p.scoringType?.abbreviation || p.type?.abbreviation) === "TD");
+    const tdBy = td && /^(.+?)\s+\d+\s*(?:yd|yard)/i.exec(String(td.text || ""));
+    const firstTd = tdBy && /\s/.test(tdBy[1].trim()) ? M.nameKey(tdBy[1]) : null;
     const pc = (d.pickcenter || [])[0];
     let espnLine = null;
     if (pc) {
@@ -769,7 +791,7 @@
       espnLine = { spread: num(pc.spread), total: num(pc.overUnder), spread_p: 0.5, over_p: 0.5,
         home_ml_p: hm != null && am != null ? imp(hm) / (imp(hm) + imp(am)) : null, source: "ESPN (DraftKings)" };
     }
-    return { stats, playerTeam, maxLead, espnLine };
+    return { stats, playerTeam, maxLead, firstTd, espnLine };
   }
 
   // ---------- point in time (ESPN play-by-play) ----------
@@ -817,7 +839,7 @@
       if (sum) {
         const maxLead = { home: 0, away: 0 };
         for (const p of tl) { if (p.t > T) break; maxLead.home = Math.max(maxLead.home, p.home - p.away); maxLead.away = Math.max(maxLead.away, p.away - p.home); }
-        summaries.set(id, { ...sum, stats: x.state === "post" ? sum.stats : {}, maxLead });
+        summaries.set(id, { ...sum, stats: x.state === "post" ? sum.stats : {}, firstTd: x.state === "post" ? sum.firstTd : null, maxLead });
       }
     }
     return { ...st, games, summaries };
@@ -915,7 +937,7 @@
             if (!games[key]) {
               const live = g ? (REPLAY ? { state: "pre" } : { state: g.state, home: g.homeScore, away: g.awayScore, secLeft: g.secLeft, period: g.period, wp: g.wp, frac: g.frac, outsLeft: g.outsLeft }) : { state: "pre" };
               const sum = REPLAY ? null : g && st.summaries.get(g.id);
-              const G = { live, maxLead: sum?.maxLead, stats: sum?.stats, playerTeam: sum?.playerTeam, kind: "none", g };
+              const G = { live, maxLead: sum?.maxLead, stats: sum?.stats, playerTeam: sum?.playerTeam, firstTd: sum?.firstTd, kind: "none", g };
               if (g) {
                 const { L, src } = gameLine(g, legsByGame.get(g.id) || []);
                 lineSrc[key] = src;
