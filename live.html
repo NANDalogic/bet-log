@@ -1020,7 +1020,10 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     for (const id of ids) {
       const it = ctx.item.get(id);
       if (it.fixedPL != null) { win += it.fixedPL; lose += it.fixedPL; fixed += it.fixedPL; if (it.fixedPL > 0.004) won++; else if (it.fixedPL < -0.004) lost++; }
-      else { win += it.payout - it.cash; lose -= it.cash; pend.push(id); }
+      else {
+        const x = ctx.pbm.get(id), dead = x && x.winP + x.pushP <= 0.001;   // same test as the Dead pill: it can't pay, so "if all win" leaves it out
+        win += dead ? -it.cash : it.payout - it.cash; lose -= it.cash; pend.push(id);
+      }
     }
     const arrs = pend.map(ctx.plOf).filter(Boolean);
     let pBlack = null;
