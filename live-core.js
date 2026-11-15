@@ -153,6 +153,24 @@
   // The centre + atoms depend only on the fit and the game state, so they're memoized per fit (11/3/2026): live-snapshot
   // runs the model ~10× per call (day/week × each league) and redoing the 45-step bisection every time pushed it past
   // Supabase's 2 s CPU limit. Same numbers, no randomness involved.
+  // Live football (11/15/2026, MIN 30 @ GB 10 with 1:15 left showed MIN −13.5 and u40.5 Dead):
+  // (1) ESPN's win % pins the centre only where it carries information. ESPN shows 0% / 100% late in a blowout, which
+  //     was read as 0.2% / 99.8%, and the narrow late-game spread then needed GB to score 15 more points to get there.
+  //     A reading of ≤ 1% / ≥ 99% is now a bound: the centre moves only if our own projection is less lopsided than 1%.
+  //     Any move is also capped at 2 SD of the rest of the game (the basketball model's rule).
+  // (2) A plain normal almost never lets the rest of a game be scoreless (u40.5 with 40 scored and 1:15 left was 12%).
+  //     Scores come one at a time, ~PTS_PER_SCORE points each, so P(no more scoring) = exp(−scores per game × f). The
+  //     other draws are the games where someone scores: centre and total scaled by 1/(1 − q0), SD by 1/√(1 − q0), so
+  //     the means and the margin's spread stay as before. A tied game skips (2) (no more scoring = overtime).
+  const PTS_PER_SCORE = 5.3;   // NFL: ~44 points from ~8.3 scoring plays (TDs with the kick + field goals)
+  function wpTarget(wp, pBase) {
+    if (wp == null) return null;
+    if (wp <= 0.01) return pBase > 0.01 ? 0.01 : null;
+    if (wp >= 0.99) return pBase < 0.99 ? 0.99 : null;
+    return wp;
+  }
+  const noScoreP = (mu_t, f, curM) => (curM === 0 ? 0 : Math.exp(-(mu_t / PTS_PER_SCORE) * f));
+
   const v6Sims = new WeakMap(), GK = 1024;
   function simNFL(fit, live, n, R) {
     const H = new Float32Array(n), A = new Float32Array(n);
@@ -160,14 +178,18 @@
     const pre = live.state !== "in";
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
     const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
-    const sdR = fit.sd_m * Math.sqrt(f), wexp = pre ? 1 : f;
+    const q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), k = 1 / (1 - q0);   // (2); k = 1 pregame
+    const sdR = fit.sd_m * Math.sqrt(f * k), wexp = pre ? 1 : f;
     let memo = v6Sims.get(fit);
     if (!memo) { memo = new Map(); v6Sims.set(fit, memo); }
     const mk = pre ? "pre" : [curM, f, live.wp].join("|");
     let hit = memo.get(mk);
     if (!hit) {
-      let mu0 = curM + fit.mu_m * f;
-      if (!pre && live.wp != null) mu0 = v6Mu(sdR, clamp(live.wp, 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60);
+      let mu0 = curM + fit.mu_m * f * k;
+      if (!pre) {   // (1)
+        const lead = curM > 0 ? q0 : 0, t = wpTarget(live.wp, lead + (1 - q0) * v6Probs(mu0, sdR, null, wexp)[0]);
+        if (t != null) mu0 = clamp(v6Mu(sdR, clamp((t - lead) / (1 - q0), 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60), mu0 - 2 * sdR, mu0 + 2 * sdR);
+      }
       if (memo.size > 50) memo.clear();
       const At0 = v6Atoms(mu0, sdR, wexp), c0 = At0.cdf, L0 = c0.length - 1;
       // Guide table: gd[j] = first atom whose cdf > j/GK, so a draw u starts its scan at gd[floor(u·GK)]
@@ -178,8 +200,9 @@
       memo.set(mk, hit);
     }
     const mu = hit.mu, cdf = hit.At.cdf, last = cdf.length - 1, gd = hit.gd, Am = hit.m, As = hit.src;
-    const muTR = fit.mu_t * f, sdTR = fit.sd_t * Math.sqrt(f), rho = fit.rho, rr = Math.sqrt(1 - rho * rho);
+    const muTR = fit.mu_t * f * k, sdTR = fit.sd_t * Math.sqrt(f * k), rho = fit.rho, rr = Math.sqrt(1 - rho * rho);
     for (let i = 0; i < n; i++) {
+      if (q0 > 0 && R.u() < q0) { H[i] = curH; A[i] = curA; continue; }   // nobody scores again
       const u = R.u();
       let lo = gd[(u * GK) | 0];
       while (lo < last && cdf[lo] <= u) lo++;
@@ -224,11 +247,17 @@
     const pre = live.state !== "in";
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
     const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
-    const sdR = fit.sd_m * Math.sqrt(f), sdTR = fit.sd_t * Math.sqrt(f), muTR = fit.mu_t * f;
-    let muR = fit.mu_m * f;
-    // Live: centre the final margin so P(home wins) matches ESPN's win probability (it knows possession and field position).
-    if (!pre && live.wp != null) muR = sdR * ninv(clamp(live.wp, 0.002, 0.998)) - curM;
+    const q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), k = 1 / (1 - q0);   // see simNFL (2)
+    const sdR = fit.sd_m * Math.sqrt(f * k), sdTR = fit.sd_t * Math.sqrt(f * k), muTR = fit.mu_t * f * k;
+    let muR = fit.mu_m * f * k;
+    // Live: centre the final margin so P(home wins) matches ESPN's win probability (it knows possession and field position),
+    // with ESPN's 0% / 100% treated as a bound and the move capped at 2 SD (see simNFL (1)).
+    if (!pre) {
+      const lead = curM > 0 ? q0 : 0, t = wpTarget(live.wp, lead + (1 - q0) * ncdf((curM + muR) / sdR));
+      if (t != null) muR = clamp(sdR * ninv(clamp((t - lead) / (1 - q0), 0.002, 0.998)) - curM, muR - 2 * sdR, muR + 2 * sdR);
+    }
     for (let i = 0; i < n; i++) {
+      if (q0 > 0 && R.u() < q0) { H[i] = curH; A[i] = curA; continue; }   // nobody scores again
       const rm = muR + sdR * R.n();
       const rt = Math.max(Math.abs(rm), muTR + sdTR * R.n(), 0);
       let h = curH + Math.max(0, Math.round((rt + rm) / 2)), a = curA + Math.max(0, Math.round((rt - rm) / 2));
