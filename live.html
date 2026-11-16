@@ -579,7 +579,11 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     }
     const res = M.run({ games: P.games, bets: P.bets, n: 20000, seed: 7 });
     const S = M.summarize(res), E = M.extremes(res);
-    const atRisk = pend.reduce((x, b) => x + b.cash, 0);
+    // Open bets whose result is already certain (e.g. a first-TD bet once someone else scored) count as locked in, not at
+    // risk, so Locked in can't sit above Best case while the database still says Pending (11/15/2026).
+    const pbAll = new Map(res.perBet.map((x) => [x.id, x]));
+    let locked = res.fixed, atRisk = 0, nDecided = 0;
+    for (const b of pend) { const d = decidedPL(b, pbAll.get(b.id)); if (d != null) { locked += d; nDecided++; } else atRisk += b.cash; }
 
     const trend = trendPoints(pend.length ? S : null);
     if (!pend.length) {
@@ -599,7 +603,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     if (pend.length) $("#kpis").replaceChildren(
       kpi("Cash at risk", money(atRisk, false), "", `${pend.length} open bet${pend.length === 1 ? "" : "s"}`),
       kpi("Best case", money(E.best), cls(E.best), `${pctFine(E.pBest)} chance`),
-      kpi("Locked in", money(res.fixed), cls(res.fixed), `${settled.length} settled`),
+      kpi("Locked in", money(locked), cls(locked), `${settled.length} settled${nDecided ? ` · ${nDecided} decided` : ""}`),
       kpi("Worst case", money(E.worst), cls(E.worst), `${pctFine(E.pWorst)} chance`));
     renderHist(S, pend.length > 0);
     renderGames(res, P);
@@ -977,8 +981,22 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
       h("div", { class: "track" }, h("i", { style: `width:${pct}%` }), hit || bust ? null : h("u", { style: `left:${pct}%` }), h("b", {})),
       h("div", { class: "txt num" }, h("span", {}, hit ? "✓ " : bust ? "✗ " : "", h("b", {}, cur), " " + unit), h("span", {}, (under ? "under " : "line ") + line)));
   }
+  // An open bet whose result the sims already know for certain (wins, pushes or loses in every sim): its P/L, else null.
+  // Same rule as live-core's snapshotRows, so the page and the history chart agree on what is decided.
+  function decidedPL(b, x) {
+    if (!x || x.settled || !x.legs) return null;
+    return x.winP >= 0.9999 ? b.payout - b.cash : x.pushP >= 0.9999 ? 0 : x.winP + x.pushP <= 0.0001 ? -b.cash : null;
+  }
+  const gamesFinal = (m) => (m.legs || []).length > 0 && m.legs.every((l) => findGame(l)?.state === "post");
+  // Right-hand money: the real P/L once settled, or once the game is over and the result is certain; else +win / −lose.
+  function wlCell(m, it, x) {
+    const d = it.fixedPL != null ? it.fixedPL : gamesFinal(m) ? decidedPL(it, x) : null;
+    return d != null ? h("span", { class: "g-wl num " + cls(d) }, money(d)) : wlEl(it.payout - it.cash, it.cash);
+  }
   function statePill(m, it, x) {
     if (it.fixedPL != null) return h("span", { class: "pill " + (m.result === "Won" ? "won" : m.result === "Lost" ? "dead" : "") }, m.result);
+    const d = decidedPL(it, x);   // game over and the result is certain, but not settled in the database yet: show the result, not Winning / Dead
+    if (d != null && gamesFinal(m)) return h("span", { class: "pill " + (d > 0.004 ? "won" : d < -0.004 ? "dead" : "") }, d > 0.004 ? "Won" : d < -0.004 ? "Lost" : "Push");
     if (x && x.winP >= 0.999) return h("span", { class: "pill won" }, "Winning");
     if (x && x.winP + x.pushP <= 0.001) return h("span", { class: "pill dead" }, "Dead");
     return h("span", { class: "pill num" }, x ? pctS(x.winP) + (x.est ? " est." : "") : "—");
@@ -993,7 +1011,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     return h("div", { class: "g-bet" },
       h("div", { class: "main" }, h("div", { class: "t" }, l ? chipify(legShort(l), l.league) : m.bet), h("div", { class: "meta num" }, betMeta(m, it))),
       h("div", { class: "prog" }, l ? progress(l, gameKey, ctx) : null),
-      h("div", { class: "right" }, statePill(m, it, x), settled ? h("span", { class: "g-wl num " + cls(it.fixedPL) }, money(it.fixedPL)) : wlEl(it.payout - it.cash, it.cash)));
+      h("div", { class: "right" }, statePill(m, it, x), wlCell(m, it, x)));
   }
   // gameKey null = the Across games card: no leg is boxed.
   function parlayRowG(id, gameKey, ctx) {
@@ -1011,7 +1029,7 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     });
     return h("div", { class: "g-par" },
       h("div", { class: "top" }, h("div", {}, h("div", { class: "t" }, `${legs.length}-leg parlay`), h("div", { class: "meta num" }, betMeta(m, it))),
-        h("div", { class: "right" }, statePill(m, it, x), settled ? h("span", { class: "g-wl num " + cls(it.fixedPL) }, money(it.fixedPL)) : wlEl(it.payout - it.cash, it.cash))),
+        h("div", { class: "right" }, statePill(m, it, x), wlCell(m, it, x))),
       h("div", { class: "legs" + (bars.some(Boolean) ? " stack" : "") }, legEls));
   }
   // Counts, +win / −lose (settled bets at their real P/L), and the chance the group ends in the black.
