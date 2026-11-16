@@ -458,7 +458,10 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
   const kalshiRaw = (a, k = KALSHI_K) => k ? ((1 + k) - Math.sqrt((1 + k) ** 2 - 4 * k * a)) / (2 * k) : a;
   // A slip that says "no maker fee" (bet-log, 11/7/2026: maker_k 0 markets) posts with no fee at all.
   const slipNoFee = (i) => /no maker fee/i.test(i.slip || "");
-  const postCents = (rawC) => Math.ceil(rawC * 100 - 1e-6) - 1;   // 1c under the ask (whole cents)
+  // A "Post N … at Y¢ …" slip (bet-log since 11/6/2026): Y as a string, else null. A Post slip without "at Y¢" is treated
+  // as a plain buy in both the row and the confirm box (ship-check 11/7 #3): the saved odds are rounded American, so a
+  // post price rebuilt from them can land on the ask itself.
+  const slipPostY = (i) => /^\s*post\b/i.test(i.slip || "") ? ((i.slip.match(/at (\d+(?:\.\d+)?)\s*¢/i) || [])[1] || null) : null;
   const oddsOfDec = (d) => d >= 2 ? Math.round((d - 1) * 100) : Math.round(-100 / (d - 1));
   const isKalshi = (i) => /kalshi/i.test(i.book || "");
   function lockPick(cp, i) {
@@ -700,8 +703,8 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
       const how = isKalshi(i) ? `buy ${Math.round(hn.pk.pay)} contracts${maxC != null ? ` at ≤ ${maxC.toFixed(0)}¢` : ""}` : `${money(hn.stake, false)} at ${amer(hn.odds)}${floor != null ? ` (≥ ${amer(floor)})` : ""}`;
       // Not logged yet and before the start: post a resting order 1c under the planned ask first; the buy above is the fallback.
       // Only for slips written "Post N … at Y¢ …" (bet-log since 11/6/2026); live hedges keep a plain "Buy" slip.
-      const slipPost = /^\s*post\b/i.test(i.slip || "") ? (i.slip.match(/at (\d+(?:\.\d+)?)\s*¢/i) || [])[1] : undefined;
-      const pc = isKalshi(i) && s === "open" && hn.pk.pay != null && slipPost !== undefined ? (slipPost ? Number(slipPost) : postCents(kalshiRaw(1 / decOf(hn.odds)))) : null;
+      const slipPost = slipPostY(i);
+      const pc = isKalshi(i) && s === "open" && hn.pk.pay != null && slipPost ? Number(slipPost) : null;
       const post = pc != null && pc >= 1 ? `post ${Math.round(hn.pk.pay)} at ${pc}¢, resting only, expires before the start → locks ${money(hn.pk.pay - hn.pk.cash - hn.pk.pay * kalshiAllIn(pc / 100, slipNoFee(i) ? 0 : MAKER_K))} · not filled: ` : "";
       const txt = hn.pk.state === "skipped" ? `Its pick (${pickTxt}) was skipped: use the hedge under that pick's alternate instead.`
         : `Locks ${pickTxt}${hn.pk.state === "placed" ? " (logged)" : ""}: ${post}${how} → ${hn.r ? lockText(hn.r) : "—"}`;
@@ -833,16 +836,15 @@ b.addEventListener("click",function(){var n=cur()==="dark"?"light":"dark";r.setA
     const pk = lockPick(currentPlan(), i);
     const kx = !!(pk && isKalshi(i));
     $("#pdCentsRow").hidden = $("#pdMakerRow").hidden = !kx;
-    // "Post …" slips (before the start): assume the resting order filled at the slip's price; untick for a taker fill.
-    const postSlip = kx && itemState(i) === "open" && /^\s*post\b/i.test(i.slip || "");
+    // "Post … at Y¢" slips (before the start): assume the resting order filled at the slip's price; untick for a taker fill.
+    const postSlip = kx && itemState(i) === "open" && !!slipPostY(i);
     $("#pdMaker").checked = postSlip;
     $("#pdNoFee").checked = postSlip && slipNoFee(i);
     $("#pdNoFeeRow").hidden = !kx || !postSlip;
     $("#pdCents").value = kx && o != null ? (kalshiRaw(1 / decOf(o)) * 100).toFixed(1) : "";
     if (pk && pk.pay != null && o != null) $("#pdStake").value = (pk.pay / decOf(o)).toFixed(2);
     if (postSlip && o != null) {
-      const y = (i.slip.match(/at (\d+(?:\.\d+)?)\s*¢/i) || [])[1];
-      $("#pdCents").value = y || String(postCents(kalshiRaw(1 / decOf(o))));
+      $("#pdCents").value = slipPostY(i);
       lockResize(true);
     }
     updatePreview();
