@@ -170,6 +170,18 @@
     return wp;
   }
   const noScoreP = (mu_t, f, curM) => (curM === 0 ? 0 : Math.exp(-(mu_t / PTS_PER_SCORE) * f));
+  // (3) ESPN's real win % is matched (ship-check 11/20/2026). Every q0 draw goes to the current leader and q0 depends
+  //     only on the clock, and the centre could move only 2 SD (~1 point in the last minute), so a close game late
+  //     (home up 2, 1:15 left, ESPN home 15% because the other team is driving) showed the leader at 85% whatever ESPN
+  //     said. Now the 2-SD cap applies only to ESPN's 0% / 100% bound (the blowout case (1) was written for); a real
+  //     reading t (1–99%) moves the centre freely, as before 11/15. And q0 shrinks only when t can't be reached with it
+  //     (scoring draws can give home at most 99.8% / at least 0.2%): home leads → q0 ≤ (t − 0.002)/0.998,
+  //     home trails → q0 ≤ 1 − t/0.998. The cut q0 reads as "the trailing team's drive fails"; the rest are scores.
+  const realWp = (t) => t != null && t > 0.01 && t < 0.99;
+  function capQ0(q0, t, curM) {
+    if (!realWp(t) || q0 <= 0) return q0;
+    return clamp(curM > 0 ? (t - 0.002) / 0.998 : 1 - t / 0.998, 0, q0);
+  }
 
   const v6Sims = new WeakMap(), GK = 1024;
   function simNFL(fit, live, n, R) {
@@ -178,17 +190,25 @@
     const pre = live.state !== "in";
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
     const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
-    const q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), k = 1 / (1 - q0);   // (2); k = 1 pregame
-    const sdR = fit.sd_m * Math.sqrt(f * k), wexp = pre ? 1 : f;
+    const wexp = pre ? 1 : f;
     let memo = v6Sims.get(fit);
     if (!memo) { memo = new Map(); v6Sims.set(fit, memo); }
     const mk = pre ? "pre" : [curM, f, live.wp].join("|");
     let hit = memo.get(mk);
     if (!hit) {
-      let mu0 = curM + fit.mu_m * f * k;
-      if (!pre) {   // (1)
-        const lead = curM > 0 ? q0 : 0, t = wpTarget(live.wp, lead + (1 - q0) * v6Probs(mu0, sdR, null, wexp)[0]);
-        if (t != null) mu0 = clamp(v6Mu(sdR, clamp((t - lead) / (1 - q0), 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60), mu0 - 2 * sdR, mu0 + 2 * sdR);
+      // (2) q0 = no more scoring; k scales the rest of the game so means match. (3) q0 shrinks if ESPN's % needs it.
+      const sdOf = (q) => fit.sd_m * Math.sqrt(f / (1 - q)), muOf = (q) => curM + fit.mu_m * f / (1 - q);
+      let q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), t = null;
+      if (!pre) {
+        t = wpTarget(live.wp, (curM > 0 ? q0 : 0) + (1 - q0) * v6Probs(muOf(q0), sdOf(q0), null, wexp)[0]);
+        q0 = capQ0(q0, t, curM);
+      }
+      const k = 1 / (1 - q0), sdR = sdOf(q0);
+      let mu0 = muOf(q0);
+      if (t != null) {   // (1), (3)
+        const lead = curM > 0 ? q0 : 0;
+        const m = v6Mu(sdR, clamp((t - lead) / (1 - q0), 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60);
+        mu0 = realWp(t) ? m : clamp(m, mu0 - 2 * sdR, mu0 + 2 * sdR);
       }
       if (memo.size > 50) memo.clear();
       const At0 = v6Atoms(mu0, sdR, wexp), c0 = At0.cdf, L0 = c0.length - 1;
@@ -196,10 +216,11 @@
       // (same atom as a binary search for the first cdf > u, ~1 step instead of ~8).
       const gd = new Int32Array(GK); let ii = 0;
       for (let j = 0; j < GK; j++) { while (ii < L0 && c0[ii] <= j / GK) ii++; gd[j] = ii; }
-      hit = { mu: mu0, At: At0, gd, m: Float64Array.from(At0.m), src: Float64Array.from(At0.src) };
+      hit = { mu: mu0, At: At0, gd, m: Float64Array.from(At0.m), src: Float64Array.from(At0.src), q0, k, sdR };
       memo.set(mk, hit);
     }
     const mu = hit.mu, cdf = hit.At.cdf, last = cdf.length - 1, gd = hit.gd, Am = hit.m, As = hit.src;
+    const q0 = hit.q0, k = hit.k, sdR = hit.sdR;
     const muTR = fit.mu_t * f * k, sdTR = fit.sd_t * Math.sqrt(f * k), rho = fit.rho, rr = Math.sqrt(1 - rho * rho);
     for (let i = 0; i < n; i++) {
       if (q0 > 0 && R.u() < q0) { H[i] = curH; A[i] = curA; continue; }   // nobody scores again
@@ -247,14 +268,20 @@
     const pre = live.state !== "in";
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
     const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
-    const q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), k = 1 / (1 - q0);   // see simNFL (2)
-    const sdR = fit.sd_m * Math.sqrt(f * k), sdTR = fit.sd_t * Math.sqrt(f * k), muTR = fit.mu_t * f * k;
-    let muR = fit.mu_m * f * k;
-    // Live: centre the final margin so P(home wins) matches ESPN's win probability (it knows possession and field position),
-    // with ESPN's 0% / 100% treated as a bound and the move capped at 2 SD (see simNFL (1)).
+    // See simNFL (2) and (3): q0 = no more scoring, shrunk when ESPN's win % couldn't be reached otherwise.
+    const sdOf = (q) => fit.sd_m * Math.sqrt(f / (1 - q)), muOf = (q) => fit.mu_m * f / (1 - q);
+    let q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), t = null;
     if (!pre) {
-      const lead = curM > 0 ? q0 : 0, t = wpTarget(live.wp, lead + (1 - q0) * ncdf((curM + muR) / sdR));
-      if (t != null) muR = clamp(sdR * ninv(clamp((t - lead) / (1 - q0), 0.002, 0.998)) - curM, muR - 2 * sdR, muR + 2 * sdR);
+      t = wpTarget(live.wp, (curM > 0 ? q0 : 0) + (1 - q0) * ncdf((curM + muOf(q0)) / sdOf(q0)));
+      q0 = capQ0(q0, t, curM);
+    }
+    const k = 1 / (1 - q0), sdR = sdOf(q0), sdTR = fit.sd_t * Math.sqrt(f * k), muTR = fit.mu_t * f * k;
+    let muR = muOf(q0);
+    // Live: centre the final margin so P(home wins) matches ESPN's win probability (it knows possession and field position),
+    // with ESPN's 0% / 100% treated as a bound and only that move capped at 2 SD (see simNFL (1), (3)).
+    if (t != null) {
+      const lead = curM > 0 ? q0 : 0, m = sdR * ninv(clamp((t - lead) / (1 - q0), 0.002, 0.998)) - curM;
+      muR = realWp(t) ? m : clamp(m, muR - 2 * sdR, muR + 2 * sdR);
     }
     for (let i = 0; i < n; i++) {
       if (q0 > 0 && R.u() < q0) { H[i] = curH; A[i] = curA; continue; }   // nobody scores again
