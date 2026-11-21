@@ -168,7 +168,7 @@
   //     to score the winner), so it is matched like any other reading. A value that isn't a probability = missing (F4).
   const atBound = (wp, curM) => (wp <= 0.01 && curM < 0) || (wp >= 0.99 && curM > 0);
   function wpTarget(wp, pBase, curM) {
-    if (wp == null || !Number.isFinite(Number(wp))) return null;
+    if (wp == null || wp === "" || !Number.isFinite(Number(wp))) return null;   // "" would read as 0% (Number("") = 0)
     wp = Number(wp);
     if (wp < 0 || wp > 1) return null;
     if (!atBound(wp, curM)) return clamp(wp, 0.002, 0.998);
@@ -183,7 +183,7 @@
   //     reading t (1–99%) moves the centre freely, as before 11/15. And q0 shrinks only when t can't be reached with it
   //     (scoring draws can give home at most 99.8% / at least 0.2%): home leads → q0 ≤ (t − 0.002)/0.998,
   //     home trails → q0 ≤ 1 − t/0.998. The cut q0 reads as "the trailing team's drive fails"; the rest are scores.
-  const realWp = (t, wp, curM) => t != null && !atBound(Number(wp), curM);
+  const realWp = (t, wp, curM) => t != null && !atBound(Number(wp), curM);   // t != null: wp is a real number here
   function capQ0(q0, t, curM, real) {
     if (!real || q0 <= 0) return q0;
     return clamp(curM > 0 ? (t - 0.002) / 0.998 : 1 - t / 0.998, 0, q0);
