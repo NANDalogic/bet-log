@@ -163,11 +163,17 @@
   //     other draws are the games where someone scores: centre and total scaled by 1/(1 − q0), SD by 1/√(1 − q0), so
   //     the means and the margin's spread stay as before. A tied game skips (2) (no more scoring = overtime).
   const PTS_PER_SCORE = 5.3;   // NFL: ~44 points from ~8.3 scoring plays (TDs with the kick + field goals)
-  function wpTarget(wp, pBase) {
-    if (wp == null) return null;
+  // (4) ESPN's 0% / 100% is a blowout bound only when it points at the team already ahead (audit 11/20/2026 F1).
+  //     Pointing at the trailing team (or in a tie) it is the strongest real reading there is (the trailer is about
+  //     to score the winner), so it is matched like any other reading. A value that isn't a probability = missing (F4).
+  const atBound = (wp, curM) => (wp <= 0.01 && curM < 0) || (wp >= 0.99 && curM > 0);
+  function wpTarget(wp, pBase, curM) {
+    if (wp == null || !Number.isFinite(Number(wp))) return null;
+    wp = Number(wp);
+    if (wp < 0 || wp > 1) return null;
+    if (!atBound(wp, curM)) return clamp(wp, 0.002, 0.998);
     if (wp <= 0.01) return pBase > 0.01 ? 0.01 : null;
-    if (wp >= 0.99) return pBase < 0.99 ? 0.99 : null;
-    return wp;
+    return pBase < 0.99 ? 0.99 : null;
   }
   const noScoreP = (mu_t, f, curM) => (curM === 0 ? 0 : Math.exp(-(mu_t / PTS_PER_SCORE) * f));
   // (3) ESPN's real win % is matched (ship-check 11/20/2026). Every q0 draw goes to the current leader and q0 depends
@@ -177,9 +183,9 @@
   //     reading t (1–99%) moves the centre freely, as before 11/15. And q0 shrinks only when t can't be reached with it
   //     (scoring draws can give home at most 99.8% / at least 0.2%): home leads → q0 ≤ (t − 0.002)/0.998,
   //     home trails → q0 ≤ 1 − t/0.998. The cut q0 reads as "the trailing team's drive fails"; the rest are scores.
-  const realWp = (t) => t != null && t > 0.01 && t < 0.99;
-  function capQ0(q0, t, curM) {
-    if (!realWp(t) || q0 <= 0) return q0;
+  const realWp = (t, wp, curM) => t != null && !atBound(Number(wp), curM);
+  function capQ0(q0, t, curM, real) {
+    if (!real || q0 <= 0) return q0;
     return clamp(curM > 0 ? (t - 0.002) / 0.998 : 1 - t / 0.998, 0, q0);
   }
 
@@ -189,7 +195,7 @@
     if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0 }; }
     const pre = live.state !== "in";
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
-    const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
+    const f = pre ? 1 : clamp((Number(live.secLeft) || 0) / 3600, 0.003, 1);   // missing clock -> 0:00, never NaN
     const wexp = pre ? 1 : f;
     let memo = v6Sims.get(fit);
     if (!memo) { memo = new Map(); v6Sims.set(fit, memo); }
@@ -198,17 +204,18 @@
     if (!hit) {
       // (2) q0 = no more scoring; k scales the rest of the game so means match. (3) q0 shrinks if ESPN's % needs it.
       const sdOf = (q) => fit.sd_m * Math.sqrt(f / (1 - q)), muOf = (q) => curM + fit.mu_m * f / (1 - q);
-      let q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), t = null;
+      let q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), t = null, real = false;
       if (!pre) {
-        t = wpTarget(live.wp, (curM > 0 ? q0 : 0) + (1 - q0) * v6Probs(muOf(q0), sdOf(q0), null, wexp)[0]);
-        q0 = capQ0(q0, t, curM);
+        t = wpTarget(live.wp, (curM > 0 ? q0 : 0) + (1 - q0) * v6Probs(muOf(q0), sdOf(q0), null, wexp)[0], curM);
+        real = realWp(t, live.wp, curM);
+        q0 = capQ0(q0, t, curM, real);
       }
       const k = 1 / (1 - q0), sdR = sdOf(q0);
       let mu0 = muOf(q0);
       if (t != null) {   // (1), (3)
         const lead = curM > 0 ? q0 : 0;
         const m = v6Mu(sdR, clamp((t - lead) / (1 - q0), 0.002, 0.998), 0, null, wexp, curM - 60, curM + 60);
-        mu0 = realWp(t) ? m : clamp(m, mu0 - 2 * sdR, mu0 + 2 * sdR);
+        mu0 = real ? m : clamp(m, mu0 - 2 * sdR, mu0 + 2 * sdR);
       }
       if (memo.size > 50) memo.clear();
       const At0 = v6Atoms(mu0, sdR, wexp), c0 = At0.cdf, L0 = c0.length - 1;
@@ -267,13 +274,14 @@
     if (live.state === "post") { H.fill(live.home); A.fill(live.away); return { H, A, f: 0 }; }
     const pre = live.state !== "in";
     const curH = pre ? 0 : live.home, curA = pre ? 0 : live.away, curM = curH - curA;
-    const f = pre ? 1 : clamp(live.secLeft / 3600, 0.003, 1);
-    // See simNFL (2) and (3): q0 = no more scoring, shrunk when ESPN's win % couldn't be reached otherwise.
+    const f = pre ? 1 : clamp((Number(live.secLeft) || 0) / 3600, 0.003, 1);
+    // See simNFL (2), (3) and (4): q0 = no more scoring, shrunk when ESPN's win % couldn't be reached otherwise.
     const sdOf = (q) => fit.sd_m * Math.sqrt(f / (1 - q)), muOf = (q) => fit.mu_m * f / (1 - q);
-    let q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), t = null;
+    let q0 = pre ? 0 : noScoreP(fit.mu_t, f, curM), t = null, real = false;
     if (!pre) {
-      t = wpTarget(live.wp, (curM > 0 ? q0 : 0) + (1 - q0) * ncdf((curM + muOf(q0)) / sdOf(q0)));
-      q0 = capQ0(q0, t, curM);
+      t = wpTarget(live.wp, (curM > 0 ? q0 : 0) + (1 - q0) * ncdf((curM + muOf(q0)) / sdOf(q0)), curM);
+      real = realWp(t, live.wp, curM);
+      q0 = capQ0(q0, t, curM, real);
     }
     const k = 1 / (1 - q0), sdR = sdOf(q0), sdTR = fit.sd_t * Math.sqrt(f * k), muTR = fit.mu_t * f * k;
     let muR = muOf(q0);
@@ -281,7 +289,7 @@
     // with ESPN's 0% / 100% treated as a bound and only that move capped at 2 SD (see simNFL (1), (3)).
     if (t != null) {
       const lead = curM > 0 ? q0 : 0, m = sdR * ninv(clamp((t - lead) / (1 - q0), 0.002, 0.998)) - curM;
-      muR = realWp(t) ? m : clamp(m, muR - 2 * sdR, muR + 2 * sdR);
+      muR = real ? m : clamp(m, muR - 2 * sdR, muR + 2 * sdR);
     }
     for (let i = 0; i < n; i++) {
       if (q0 > 0 && R.u() < q0) { H[i] = curH; A[i] = curA; continue; }   // nobody scores again
